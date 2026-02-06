@@ -612,6 +612,7 @@ export interface MachineState {
   architectural: ArchitecturalState;
   pipeline?: PipelineState;
   tomasulo?: TomasuloState;
+  speculation?: SpeculationState;
   mode: ExecutionMode;
 }
 
@@ -664,7 +665,272 @@ export interface SimulatorConfig {
   
   // Tomasulo configuration
   tomasuloConfig?: TomasuloConfig;
+  
+  // Speculation configuration
+  speculationConfig?: SpeculationConfig;
 }
+
+// ============================================================================
+// Phase 3: Tomasulo + Speculation Types
+// ============================================================================
+
+/**
+ * ROB entry type classification
+ */
+export enum ROBEntryType {
+  ALU = 'ALU',
+  LOAD = 'LOAD',
+  STORE = 'STORE',
+  BRANCH = 'BRANCH',
+  JUMP = 'JUMP',
+  NOP = 'NOP',
+}
+
+/**
+ * ROB entry state
+ */
+export enum ROBState {
+  ISSUED = 'ISSUED',           // Issued, waiting for execution
+  EXECUTING = 'EXECUTING',     // Currently executing in RS/FU
+  WRITE_RESULT = 'WRITE_RESULT', // Wrote result, waiting for commit
+  COMMITTED = 'COMMITTED',     // Successfully committed
+  SQUASHED = 'SQUASHED',       // Flushed due to mispredict
+}
+
+/**
+ * Get ROB entry type for an instruction
+ */
+export function getROBEntryType(type: InstructionType): ROBEntryType {
+  switch (type) {
+    case InstructionType.ADD:
+    case InstructionType.SUB:
+    case InstructionType.MUL:
+    case InstructionType.DIV:
+    case InstructionType.AND:
+    case InstructionType.OR:
+    case InstructionType.XOR:
+    case InstructionType.ADDI:
+    case InstructionType.SUBI:
+    case InstructionType.MULI:
+    case InstructionType.DIVI:
+      return ROBEntryType.ALU;
+    case InstructionType.LD:
+      return ROBEntryType.LOAD;
+    case InstructionType.ST:
+      return ROBEntryType.STORE;
+    case InstructionType.BEQ:
+    case InstructionType.BNE:
+      return ROBEntryType.BRANCH;
+    case InstructionType.J:
+      return ROBEntryType.JUMP;
+    case InstructionType.NOP:
+      return ROBEntryType.NOP;
+  }
+}
+
+/**
+ * RAT entry for speculation mode (points to ROB index)
+ */
+export interface SpeculationRATEntry {
+  robIndex: number | null;  // ROB entry producing this value, or null if ready in ARF
+}
+
+/**
+ * Reorder Buffer entry
+ */
+export interface ROBEntry {
+  // Identification
+  index: number;              // ROB entry index (0 to size-1)
+  busy: boolean;              // Entry is occupied
+  instrIndex: number;         // Program order index for tie-breaking
+  pc: number;                 // Instruction PC (for debugging)
+  
+  // Instruction info
+  type: ROBEntryType;         // ALU, LOAD, STORE, BRANCH, JUMP, NOP
+  instruction: Instruction | null;  // The instruction
+  
+  // Destination register (for ALU/LOAD)
+  destReg: number | null;     // Architectural destination register
+  value: number | null;       // Computed result
+  ready: boolean;             // Result is ready (execution complete)
+  
+  // Store-specific fields
+  storeAddress: number | null;   // Computed store address
+  storeAddressReady: boolean;    // Address has been computed
+  storeData: number | null;      // Store data value
+  storeDataReady: boolean;       // Data is ready
+  
+  // Branch-specific fields
+  predictedTaken: boolean;       // Predicted direction
+  predictedTarget: number;       // Predicted target PC
+  predictedNextPC: number;       // Predicted next PC after branch
+  actualTaken: boolean | null;   // Actual direction (set on resolution)
+  actualTarget: number | null;   // Actual target PC (set on resolution)
+  actualNextPC: number | null;   // Actual next PC after branch
+  branchResolved: boolean;       // Branch has been resolved
+  mispredicted: boolean;         // Was mispredicted
+  
+  // Checkpointing for branch recovery
+  ratCheckpoint: Map<number, SpeculationRATEntry> | null;
+  
+  // Execution state tracking
+  state: ROBState;            // Current state
+  rsId: string | null;        // Associated RS entry ID
+  
+  // Cycle tracking
+  issueCycle: number | null;
+  execStartCycle: number | null;
+  execEndCycle: number | null;
+  writeResultCycle: number | null;
+  commitCycle: number | null;
+}
+
+/**
+ * CDB broadcast for speculation mode (uses ROB index as tag)
+ */
+export interface SpeculationCDBBroadcast {
+  robIndex: number;        // ROB entry index (the tag)
+  value: number;           // Computed value
+  destReg: number | null;  // Destination register
+  instrIndex: number;      // Program order index
+}
+
+/**
+ * Speculation event types for logging
+ */
+export enum SpeculationEventType {
+  // Issue events
+  ISSUE = 'ISSUE',
+  ISSUE_STALL_RS_FULL = 'ISSUE_STALL_RS_FULL',
+  ISSUE_STALL_ROB_FULL = 'ISSUE_STALL_ROB_FULL',
+  
+  // ROB events
+  ROB_ALLOCATE = 'ROB_ALLOCATE',
+  ROB_UPDATE = 'ROB_UPDATE',
+  ROB_COMMIT = 'ROB_COMMIT',
+  ROB_SQUASH = 'ROB_SQUASH',
+  
+  // RAT events
+  RAT_UPDATE = 'RAT_UPDATE',
+  RAT_CHECKPOINT = 'RAT_CHECKPOINT',
+  RAT_RESTORE = 'RAT_RESTORE',
+  RAT_CLEAR = 'RAT_CLEAR',
+  
+  // RS events
+  RS_ALLOCATE = 'RS_ALLOCATE',
+  RS_OPERAND_WAKEUP = 'RS_OPERAND_WAKEUP',
+  RS_FREE = 'RS_FREE',
+  
+  // Execution events
+  EXEC_START = 'EXEC_START',
+  EXEC_CONTINUE = 'EXEC_CONTINUE',
+  EXEC_END = 'EXEC_END',
+  ADDR_CALC = 'ADDR_CALC',
+  
+  // CDB events
+  CDB_BROADCAST = 'CDB_BROADCAST',
+  CDB_CONTENTION = 'CDB_CONTENTION',
+  
+  // Branch events
+  BRANCH_PREDICT = 'BRANCH_PREDICT',
+  BRANCH_RESOLVE = 'BRANCH_RESOLVE',
+  BRANCH_CORRECT = 'BRANCH_CORRECT',
+  BRANCH_MISPREDICT = 'BRANCH_MISPREDICT',
+  
+  // Recovery events
+  RECOVERY_START = 'RECOVERY_START',
+  RECOVERY_SQUASH = 'RECOVERY_SQUASH',
+  RECOVERY_COMPLETE = 'RECOVERY_COMPLETE',
+  
+  // Memory events
+  MEM_READ = 'MEM_READ',
+  MEM_WRITE = 'MEM_WRITE',
+  
+  // ARF events
+  ARF_WRITE = 'ARF_WRITE',
+  
+  // PC events
+  PC_UPDATE = 'PC_UPDATE',
+  PC_REDIRECT = 'PC_REDIRECT',
+  
+  // Error
+  ERROR = 'ERROR',
+}
+
+/**
+ * A single event in speculation execution
+ */
+export interface SpeculationEvent {
+  cycle: number;
+  type: SpeculationEventType;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Instruction status for speculation mode (includes commit cycle)
+ */
+export interface SpeculationInstructionStatus {
+  instruction: Instruction;
+  instrIndex: number;
+  robIndex: number;
+  issueCycle: number | null;
+  execStartCycle: number | null;
+  execEndCycle: number | null;
+  writeResultCycle: number | null;
+  commitCycle: number | null;
+  squashed: boolean;
+  rsId: string | null;
+}
+
+/**
+ * Speculation configuration
+ */
+export interface SpeculationConfig {
+  // RS counts
+  integerRS: number;
+  multiplyRS: number;
+  divideRS: number;
+  loadBuffers: number;
+  storeBuffers: number;
+  branchRS: number;
+  
+  // ROB configuration
+  robSize: number;
+  commitWidth: number;
+  
+  // Execution latencies
+  integerLatency: number;   // ADD, SUB, ADDI, SUBI
+  multiplyLatency: number;  // MUL, MULI
+  divideLatency: number;    // DIV, DIVI
+  logicalLatency: number;   // AND, OR, XOR
+  loadLatency: number;      // LD (addr + mem)
+  storeLatency: number;     // ST (addr + mem)
+  branchLatency: number;    // BEQ, BNE, J
+}
+
+/**
+ * Default speculation configuration
+ */
+export const DEFAULT_SPECULATION_CONFIG: SpeculationConfig = {
+  integerRS: 3,
+  multiplyRS: 2,
+  divideRS: 2,
+  loadBuffers: 3,
+  storeBuffers: 3,
+  branchRS: 2,  // Increased for speculation
+  
+  robSize: 8,
+  commitWidth: 1,
+  
+  integerLatency: 2,   // ADD, SUB, ADDI, SUBI
+  multiplyLatency: 5,  // MUL, MULI
+  divideLatency: 7,    // DIV, DIVI
+  logicalLatency: 1,   // AND, OR, XOR
+  loadLatency: 2,      // 1 addr + 1 mem
+  storeLatency: 2,     // 1 addr + 1 mem
+  branchLatency: 1,    // BEQ, BNE, J
+};
 
 /**
  * Default simulator configuration
@@ -675,4 +941,123 @@ export const DEFAULT_CONFIG: SimulatorConfig = {
     dataForwarding: true,
   },
   tomasuloConfig: DEFAULT_TOMASULO_CONFIG,
+  speculationConfig: DEFAULT_SPECULATION_CONFIG,
 };
+
+/**
+ * Get speculation execution latency for an instruction
+ */
+export function getSpeculationLatency(type: InstructionType, config: SpeculationConfig): number {
+  switch (type) {
+    case InstructionType.ADD:
+    case InstructionType.SUB:
+    case InstructionType.ADDI:
+    case InstructionType.SUBI:
+      return config.integerLatency;
+    case InstructionType.MUL:
+    case InstructionType.MULI:
+      return config.multiplyLatency;
+    case InstructionType.DIV:
+    case InstructionType.DIVI:
+      return config.divideLatency;
+    case InstructionType.AND:
+    case InstructionType.OR:
+    case InstructionType.XOR:
+      return config.logicalLatency;
+    case InstructionType.LD:
+      return config.loadLatency;
+    case InstructionType.ST:
+      return config.storeLatency;
+    case InstructionType.BEQ:
+    case InstructionType.BNE:
+    case InstructionType.J:
+      return config.branchLatency;
+    case InstructionType.NOP:
+      return 0;
+  }
+}
+
+/**
+ * Speculation reservation station entry (uses ROB index for Q-fields)
+ */
+export interface SpeculationRS {
+  id: string;                      // RS ID (e.g., "INT0")
+  rsType: RSType;                  // INT, MUL, DIV, LOAD, STORE, BRANCH
+  busy: boolean;                   // Entry occupied
+  op: InstructionType | null;      // Operation
+  
+  // Source operands (tagged with ROB indices)
+  Vj: number | null;               // Value (if ready)
+  Qj: number | null;               // ROB index of producer (null if ready)
+  Vk: number | null;               // Value (if ready)
+  Qk: number | null;               // ROB index of producer (null if ready)
+  
+  imm: number;                     // Immediate value
+  address: number | null;          // Computed address (for LD/ST)
+  addressReady: boolean;           // Address computed
+  
+  // ROB linkage
+  robIndex: number;                // Destination ROB entry index
+  destReg: number | null;          // Architectural destination
+  
+  // Execution state
+  state: RSState;                  // WAITING, READY, EXECUTING, DONE
+  remainingCycles: number;         // Cycles left
+  result: number | null;           // Computed result
+  
+  instrIndex: number;              // Program order index
+  instruction: Instruction | null;
+  
+  // Cycle tracking
+  issueCycle: number | null;
+  execStartCycle: number | null;
+  execEndCycle: number | null;
+}
+
+/**
+ * Speculation state (Tomasulo + ROB)
+ */
+export interface SpeculationState {
+  // Reorder Buffer
+  rob: ROBEntry[];
+  robHead: number;               // Index of oldest entry (commit pointer)
+  robTail: number;               // Index of next free entry (allocate pointer)
+  robSize: number;               // Total ROB size
+  
+  // Reservation stations (using ROB indices for Q-fields)
+  reservationStations: Map<string, SpeculationRS>;
+  
+  // RAT for speculation (points to ROB indices)
+  rat: Map<number, SpeculationRATEntry>;
+  
+  // Current CDB broadcast
+  cdb: SpeculationCDBBroadcast | null;
+  
+  // Instruction status tracking
+  instructionStatus: SpeculationInstructionStatus[];
+  
+  // Issue tracking
+  nextInstrIndex: number;        // Next instruction to issue
+  
+  // Store queue (ROB indices of uncommitted stores, in order)
+  storeQueue: number[];
+  
+  // Statistics
+  issueStalls: number;
+  robFullStalls: number;
+  rsFullStalls: number;
+  cdbBroadcasts: number;
+  cdbContentionCycles: number;
+  memoryReads: number;
+  memoryWrites: number;
+  branchCount: number;
+  mispredictCount: number;
+  instructionsSquashed: number;
+  instructionsCommitted: number;
+  
+  // Event log
+  events: SpeculationEvent[];
+  
+  // Configuration
+  config: SpeculationConfig;
+}

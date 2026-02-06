@@ -21,6 +21,15 @@ import {
   MEMORY_SIZE,
   WORD_SIZE,
   DEFAULT_TOMASULO_CONFIG,
+  // Speculation types
+  SpeculationState,
+  SpeculationConfig,
+  SpeculationRATEntry,
+  SpeculationRS,
+  ROBEntry,
+  ROBEntryType,
+  ROBState,
+  DEFAULT_SPECULATION_CONFIG,
 } from './types';
 
 /**
@@ -207,12 +216,161 @@ export function createTomasuloState(config: TomasuloConfig): TomasuloState {
 }
 
 /**
+ * Create an empty ROB entry
+ */
+export function createEmptyROBEntry(index: number): ROBEntry {
+  return {
+    index,
+    busy: false,
+    instrIndex: -1,
+    pc: 0,
+    type: ROBEntryType.NOP,
+    instruction: null,
+    destReg: null,
+    value: null,
+    ready: false,
+    storeAddress: null,
+    storeAddressReady: false,
+    storeData: null,
+    storeDataReady: false,
+    predictedTaken: false,
+    predictedTarget: 0,
+    predictedNextPC: 0,
+    actualTaken: null,
+    actualTarget: null,
+    actualNextPC: null,
+    branchResolved: false,
+    mispredicted: false,
+    ratCheckpoint: null,
+    state: ROBState.ISSUED,
+    rsId: null,
+    issueCycle: null,
+    execStartCycle: null,
+    execEndCycle: null,
+    writeResultCycle: null,
+    commitCycle: null,
+  };
+}
+
+/**
+ * Create an empty speculation RS entry
+ */
+export function createEmptySpeculationRS(id: string, rsType: RSType): SpeculationRS {
+  return {
+    id,
+    rsType,
+    busy: false,
+    op: null,
+    Vj: null,
+    Qj: null,
+    Vk: null,
+    Qk: null,
+    imm: 0,
+    address: null,
+    addressReady: false,
+    robIndex: -1,
+    destReg: null,
+    state: RSState.WAITING,
+    remainingCycles: 0,
+    result: null,
+    instrIndex: -1,
+    instruction: null,
+    issueCycle: null,
+    execStartCycle: null,
+    execEndCycle: null,
+  };
+}
+
+/**
+ * Create initial speculation state
+ */
+export function createSpeculationState(config: SpeculationConfig): SpeculationState {
+  // Create ROB entries
+  const rob: ROBEntry[] = [];
+  for (let i = 0; i < config.robSize; i++) {
+    rob.push(createEmptyROBEntry(i));
+  }
+  
+  // Create reservation stations
+  const reservationStations = new Map<string, SpeculationRS>();
+  
+  // Create integer RS
+  for (let i = 0; i < config.integerRS; i++) {
+    const id = `INT${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.INT));
+  }
+  
+  // Create multiply RS
+  for (let i = 0; i < config.multiplyRS; i++) {
+    const id = `MUL${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.MUL));
+  }
+  
+  // Create divide RS
+  for (let i = 0; i < config.divideRS; i++) {
+    const id = `DIV${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.DIV));
+  }
+  
+  // Create load buffers
+  for (let i = 0; i < config.loadBuffers; i++) {
+    const id = `LOAD${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.LOAD));
+  }
+  
+  // Create store buffers
+  for (let i = 0; i < config.storeBuffers; i++) {
+    const id = `STORE${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.STORE));
+  }
+  
+  // Create branch RS
+  for (let i = 0; i < config.branchRS; i++) {
+    const id = `BR${i}`;
+    reservationStations.set(id, createEmptySpeculationRS(id, RSType.BRANCH));
+  }
+  
+  // Initialize RAT (all ready, pointing to ARF)
+  const rat = new Map<number, SpeculationRATEntry>();
+  for (let i = 0; i < 32; i++) {
+    rat.set(i, { robIndex: null });
+  }
+  
+  return {
+    rob,
+    robHead: 0,
+    robTail: 0,
+    robSize: config.robSize,
+    reservationStations,
+    rat,
+    cdb: null,
+    instructionStatus: [],
+    nextInstrIndex: 0,
+    storeQueue: [],
+    issueStalls: 0,
+    robFullStalls: 0,
+    rsFullStalls: 0,
+    cdbBroadcasts: 0,
+    cdbContentionCycles: 0,
+    memoryReads: 0,
+    memoryWrites: 0,
+    branchCount: 0,
+    mispredictCount: 0,
+    instructionsSquashed: 0,
+    instructionsCommitted: 0,
+    events: [],
+    config,
+  };
+}
+
+/**
  * Create initial machine state based on execution mode
  */
 export function createMachineState(
   mode: ExecutionMode,
   instructions: Instruction[],
-  tomasuloConfig?: Partial<TomasuloConfig>
+  tomasuloConfig?: Partial<TomasuloConfig>,
+  speculationConfig?: Partial<SpeculationConfig>
 ): MachineState {
   const architectural = createArchitecturalState(instructions);
   
@@ -223,16 +381,25 @@ export function createMachineState(
   
   if (mode === ExecutionMode.PIPELINE) {
     state.pipeline = createPipelineState();
-  } else if (
-    mode === ExecutionMode.TOMASULO ||
-    mode === ExecutionMode.TOMASULO_SPECULATION ||
-    mode === ExecutionMode.TOMASULO_BRANCH_PRED
-  ) {
+  } else if (mode === ExecutionMode.TOMASULO) {
     const config: TomasuloConfig = {
       ...DEFAULT_TOMASULO_CONFIG,
       ...tomasuloConfig,
     };
     state.tomasulo = createTomasuloState(config);
+  } else if (mode === ExecutionMode.TOMASULO_SPECULATION) {
+    const config: SpeculationConfig = {
+      ...DEFAULT_SPECULATION_CONFIG,
+      ...speculationConfig,
+    };
+    state.speculation = createSpeculationState(config);
+  } else if (mode === ExecutionMode.TOMASULO_BRANCH_PRED) {
+    // Phase 4: Branch prediction will build on speculation
+    const config: SpeculationConfig = {
+      ...DEFAULT_SPECULATION_CONFIG,
+      ...speculationConfig,
+    };
+    state.speculation = createSpeculationState(config);
   }
   
   return state;

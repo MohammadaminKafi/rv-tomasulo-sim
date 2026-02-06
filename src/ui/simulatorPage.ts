@@ -9,10 +9,13 @@ import {
   ExecutionMode, 
   PipelineEvent, 
   EventType,
-  TomasuloEvent,
   TomasuloEventType,
   RSState,
   RSType,
+  SpeculationEventType,
+  ROBState,
+  ROBEntry,
+  SpeculationRS,
 } from '../core/types';
 
 export class SimulatorPage {
@@ -50,6 +53,17 @@ export class SimulatorPage {
   private instructionStatusDiv!: HTMLElement;
   private rsDisplayDiv!: HTMLElement;
   private ratDisplayDiv!: HTMLElement;
+
+  // Speculation UI Elements
+  private speculationContent!: HTMLElement;
+  private robDisplayDiv!: HTMLElement;
+  private specCdbStatusDiv!: HTMLElement;
+  private specInstructionStatusDiv!: HTMLElement;
+  private specRsDisplayDiv!: HTMLElement;
+  private specRatDisplayDiv!: HTMLElement;
+  private branchPredictionDiv!: HTMLElement;
+  private specEventLogDiv!: HTMLElement;
+  private nonSpecEventLogSection!: HTMLElement;
 
   constructor(router: Router) {
     this.router = router;
@@ -97,6 +111,7 @@ export class SimulatorPage {
                 <select id="mode-select">
                   <option value="PIPELINE" selected>5-Stage Pipeline</option>
                   <option value="TOMASULO">Tomasulo Algorithm</option>
+                  <option value="TOMASULO_SPECULATION">Tomasulo + Speculation</option>
                 </select>
               </div>
 
@@ -154,7 +169,45 @@ export class SimulatorPage {
                 </div>
               </div>
 
-              <div class="state-section">
+              <!-- Speculation Mode Content -->
+              <div id="speculation-content" class="hidden">
+                <div class="state-section">
+                  <h3>Reorder Buffer (ROB)</h3>
+                  <div id="rob-display" class="rob-display"></div>
+                </div>
+
+                <div class="state-section">
+                  <h3>CDB Status</h3>
+                  <div id="spec-cdb-status" class="cdb-status-display"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>Instruction Status</h3>
+                  <div id="spec-instruction-status" class="instruction-status-table"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>Reservation Stations</h3>
+                  <div id="spec-reservation-stations" class="rs-display"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>RAT (→ ROB)</h3>
+                  <div id="spec-rat-display" class="rat-display"></div>
+                </div>
+
+                <div class="state-section">
+                  <h3>Branch Prediction</h3>
+                  <div id="branch-prediction-status" class="branch-prediction-display"></div>
+                </div>
+
+                <div class="state-section">
+                  <h3>Event Log <span class="event-log-hint">(click for full log)</span></h3>
+                  <div id="spec-event-log" class="event-log clickable"></div>
+                </div>
+              </div>
+
+              <div id="non-spec-event-log-section" class="state-section non-speculation-event-log">
                 <h3>Event Log <span class="event-log-hint">(click for full log)</span></h3>
                 <div id="event-log" class="event-log clickable"></div>
               </div>
@@ -227,6 +280,17 @@ export class SimulatorPage {
     this.instructionStatusDiv = document.getElementById('instruction-status') as HTMLElement;
     this.rsDisplayDiv = document.getElementById('reservation-stations') as HTMLElement;
     this.ratDisplayDiv = document.getElementById('rat-display') as HTMLElement;
+
+    // Speculation UI elements
+    this.speculationContent = document.getElementById('speculation-content') as HTMLElement;
+    this.robDisplayDiv = document.getElementById('rob-display') as HTMLElement;
+    this.specCdbStatusDiv = document.getElementById('spec-cdb-status') as HTMLElement;
+    this.specInstructionStatusDiv = document.getElementById('spec-instruction-status') as HTMLElement;
+    this.specRsDisplayDiv = document.getElementById('spec-reservation-stations') as HTMLElement;
+    this.specRatDisplayDiv = document.getElementById('spec-rat-display') as HTMLElement;
+    this.branchPredictionDiv = document.getElementById('branch-prediction-status') as HTMLElement;
+    this.specEventLogDiv = document.getElementById('spec-event-log') as HTMLElement;
+    this.nonSpecEventLogSection = document.getElementById('non-spec-event-log-section') as HTMLElement;
 
     // Initialize code editor
     const savedCode = localStorage.getItem('assemblyCode') || this.getDefaultCode();
@@ -450,11 +514,21 @@ export class SimulatorPage {
     if (mode === ExecutionMode.PIPELINE) {
       this.pipelineContent.classList.remove('hidden');
       this.tomasuloContent.classList.add('hidden');
+      this.speculationContent.classList.add('hidden');
+      this.nonSpecEventLogSection.classList.remove('hidden');
       this.middlePanelTitle.textContent = 'Pipeline State';
-    } else {
+    } else if (mode === ExecutionMode.TOMASULO) {
       this.pipelineContent.classList.add('hidden');
       this.tomasuloContent.classList.remove('hidden');
+      this.speculationContent.classList.add('hidden');
+      this.nonSpecEventLogSection.classList.remove('hidden');
       this.middlePanelTitle.textContent = 'Tomasulo State';
+    } else if (mode === ExecutionMode.TOMASULO_SPECULATION) {
+      this.pipelineContent.classList.add('hidden');
+      this.tomasuloContent.classList.add('hidden');
+      this.speculationContent.classList.remove('hidden');
+      this.nonSpecEventLogSection.classList.add('hidden');
+      this.middlePanelTitle.textContent = 'Tomasulo + Speculation';
     }
     
     const assembly = this.codeEditor?.getValue() || '';
@@ -496,6 +570,14 @@ export class SimulatorPage {
       this.updateReservationStations();
       this.updateRAT();
       this.updateTomasuloEventLog();
+    } else if (state.mode === ExecutionMode.TOMASULO_SPECULATION && state.speculation) {
+      this.updateSpeculationROB();
+      this.updateSpeculationCDB();
+      this.updateSpeculationInstructionStatus();
+      this.updateSpeculationRS();
+      this.updateSpeculationRAT();
+      this.updateBranchPrediction();
+      this.updateSpeculationEventLog();
     }
   }
 
@@ -1010,6 +1092,356 @@ export class SimulatorPage {
 
   // ========== End Tomasulo-specific UI Methods ==========
 
+  // ========== Speculation-specific UI Methods ==========
+
+  private updateSpeculationROB(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.robDisplayDiv.innerHTML = '<div class="no-data">No ROB data</div>';
+      return;
+    }
+
+    const spec = state.speculation;
+    const robArray = spec.rob;
+    const robHead = spec.robHead;
+    const robTail = spec.robTail;
+    const robSize = spec.robSize;
+    
+    // Calculate count of busy entries
+    let count = 0;
+    for (const entry of robArray) {
+      if (entry.busy) count++;
+    }
+    
+    const entries: Array<{ index: number; entry: ROBEntry; isHead: boolean; isTail: boolean }> = [];
+    
+    for (let i = 0; i < robSize; i++) {
+      const entry = robArray[i];
+      entries.push({
+        index: i,
+        entry,
+        isHead: i === robHead,
+        isTail: i === robTail
+      });
+    }
+
+    const getStateClass = (robState: ROBState) => {
+      switch (robState) {
+        case ROBState.ISSUED: return 'rob-issue';
+        case ROBState.EXECUTING: return 'rob-executing';
+        case ROBState.WRITE_RESULT: return 'rob-writeresult';
+        case ROBState.COMMITTED: return 'rob-commit';
+        case ROBState.SQUASHED: return 'rob-squashed';
+        default: return '';
+      }
+    };
+
+    this.robDisplayDiv.innerHTML = `
+      <div class="rob-info">
+        <span>Entries: ${count}/${robSize}</span>
+        <span>Head: ${robHead}</span>
+        <span>Tail: ${robTail}</span>
+      </div>
+      <table class="rob-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>State</th>
+            <th>Type</th>
+            <th>Dest</th>
+            <th>Value</th>
+            <th>Ready</th>
+            <th>Spec</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${entries.map(({ index, entry, isHead, isTail }) => `
+            <tr class="${entry.busy ? getStateClass(entry.state) : 'rob-empty'} ${isHead ? 'rob-head' : ''} ${isTail ? 'rob-tail' : ''}">
+              <td class="rob-index">
+                ${index}
+                ${isHead ? '<span class="rob-marker rob-marker-head">H</span>' : ''}
+                ${isTail ? '<span class="rob-marker rob-marker-tail">T</span>' : ''}
+              </td>
+              <td>${entry.busy ? ROBState[entry.state] : '-'}</td>
+              <td>${entry.busy ? entry.type : '-'}</td>
+              <td>${entry.busy && entry.destReg !== null ? `x${entry.destReg}` : '-'}</td>
+              <td>${entry.busy && entry.value !== null ? entry.value : '-'}</td>
+              <td>${entry.busy ? (entry.ready ? 'Yes' : 'No') : '-'}</td>
+              <td>${entry.busy ? (entry.branchResolved === false ? 'Yes' : 'No') : '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private updateSpeculationCDB(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.specCdbStatusDiv.innerHTML = '<div class="cdb-idle">CDB: Idle</div>';
+      return;
+    }
+
+    const cdb = state.speculation.cdb;
+    
+    if (cdb === null || cdb.robIndex === null) {
+      this.specCdbStatusDiv.innerHTML = '<div class="cdb-idle">CDB: Idle</div>';
+    } else {
+      this.specCdbStatusDiv.innerHTML = `
+        <div class="cdb-active">
+          <span class="cdb-label">CDB Broadcasting:</span>
+          <span class="cdb-tag">ROB#${cdb.robIndex}</span>
+          <span class="cdb-value">= ${cdb.value}</span>
+        </div>
+      `;
+    }
+  }
+
+  private updateSpeculationInstructionStatus(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.specInstructionStatusDiv.innerHTML = '<div class="no-data">No instruction status</div>';
+      return;
+    }
+
+    const records = state.speculation.instructionStatus;
+    
+    if (records.length === 0) {
+      this.specInstructionStatusDiv.innerHTML = '<div class="no-data">No instructions yet</div>';
+      return;
+    }
+
+    this.specInstructionStatusDiv.innerHTML = `
+      <table class="instruction-status-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Instruction</th>
+            <th>Issue</th>
+            <th>Exec</th>
+            <th>Write</th>
+            <th>Commit</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${records.map((rec, idx) => `
+            <tr class="${rec.squashed ? 'instruction-squashed' : ''}">
+              <td>${idx}</td>
+              <td class="instruction-text">${rec.instruction}</td>
+              <td>${rec.issueCycle ?? '-'}</td>
+              <td>${rec.execStartCycle !== null && rec.execEndCycle !== null 
+                ? (rec.execStartCycle === rec.execEndCycle 
+                    ? rec.execStartCycle 
+                    : `${rec.execStartCycle}-${rec.execEndCycle}`)
+                : '-'}</td>
+              <td>${rec.writeResultCycle ?? '-'}</td>
+              <td>${rec.squashed ? 'SQUASHED' : (rec.commitCycle ?? '-')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private updateSpeculationRS(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.specRsDisplayDiv.innerHTML = '<div class="no-data">No RS data</div>';
+      return;
+    }
+
+    const allRS = state.speculation.reservationStations;
+    
+    // Group by type
+    const byType = new Map<RSType, Array<{ id: string; rs: SpeculationRS }>>();
+    
+    for (const [id, entry] of allRS) {
+      const rsType = entry.rsType;
+      if (!byType.has(rsType)) {
+        byType.set(rsType, []);
+      }
+      byType.get(rsType)!.push({ id, rs: entry });
+    }
+
+    // Render each type
+    const typeOrder: RSType[] = [RSType.INT, RSType.MUL, RSType.DIV, RSType.LOAD, RSType.STORE, RSType.BRANCH];
+    
+    this.specRsDisplayDiv.innerHTML = typeOrder
+      .filter(t => byType.has(t))
+      .map(type => {
+        const entries = byType.get(type)!;
+        return `
+          <div class="rs-group">
+            <div class="rs-group-header">${type}</div>
+            <table class="rs-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Busy</th>
+                  <th>Op</th>
+                  <th>Vj</th>
+                  <th>Vk</th>
+                  <th>Qj</th>
+                  <th>Qk</th>
+                  <th>ROB#</th>
+                  <th>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${entries.map(({ id, rs }) => `
+                  <tr class="${rs.busy ? 'rs-busy' : 'rs-empty'} ${this.getRSStateClass(rs.state)}">
+                    <td>${id}</td>
+                    <td>${rs.busy ? 'Yes' : '-'}</td>
+                    <td>${rs.busy ? rs.op : '-'}</td>
+                    <td>${rs.busy ? (rs.Vj !== null ? rs.Vj : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Vk !== null ? rs.Vk : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Qj !== null ? `ROB#${rs.Qj}` : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Qk !== null ? `ROB#${rs.Qk}` : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.robIndex !== null ? rs.robIndex : '-') : '-'}</td>
+                    <td>${rs.busy ? rs.state : '-'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }).join('');
+  }
+
+  private updateSpeculationRAT(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.specRatDisplayDiv.innerHTML = '<div class="no-data">No RAT data</div>';
+      return;
+    }
+
+    const rat = state.speculation.rat;
+    
+    // Only show registers that have a ROB mapping (renamed)
+    const renamedRegs: Array<{ reg: number; robIndex: number }> = [];
+    for (const [reg, status] of rat) {
+      if (status.robIndex !== null && reg !== 0) {
+        renamedRegs.push({ reg, robIndex: status.robIndex });
+      }
+    }
+
+    if (renamedRegs.length === 0) {
+      this.specRatDisplayDiv.innerHTML = `
+        <div class="rat-info">All registers are ready (no pending renames)</div>
+      `;
+      return;
+    }
+
+    this.specRatDisplayDiv.innerHTML = `
+      <div class="rat-grid">
+        ${renamedRegs.map(({ reg, robIndex }) => `
+          <div class="rat-entry">
+            <span class="rat-reg">x${reg}</span>
+            <span class="rat-arrow">→</span>
+            <span class="rat-tag">ROB#${robIndex}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  private updateBranchPrediction(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.branchPredictionDiv.innerHTML = '<div class="no-data">No branch prediction data</div>';
+      return;
+    }
+
+    const spec = state.speculation;
+    const branchesResolved = spec.branchCount;
+    const mispredictions = spec.mispredictCount;
+    
+    const accuracy = branchesResolved > 0 
+      ? ((branchesResolved - mispredictions) / branchesResolved * 100).toFixed(1)
+      : 'N/A';
+
+    this.branchPredictionDiv.innerHTML = `
+      <div class="bp-stats">
+        <div class="bp-stat">
+          <span class="bp-stat-label">Resolved:</span>
+          <span class="bp-stat-value">${branchesResolved}</span>
+        </div>
+        <div class="bp-stat">
+          <span class="bp-stat-label">Mispredictions:</span>
+          <span class="bp-stat-value">${mispredictions}</span>
+        </div>
+        <div class="bp-stat">
+          <span class="bp-stat-label">Accuracy:</span>
+          <span class="bp-stat-value">${accuracy}${typeof accuracy === 'string' && accuracy !== 'N/A' ? '%' : ''}</span>
+        </div>
+        <div class="bp-stat">
+          <span class="bp-stat-label">Squashed:</span>
+          <span class="bp-stat-value">${spec.instructionsSquashed}</span>
+        </div>
+      </div>
+      <div class="bp-policy">
+        <span>Policy: Always-Not-Taken (BEQ/BNE), Always-Taken (J)</span>
+      </div>
+    `;
+  }
+
+  private updateSpeculationEventLog(): void {
+    const state = this.simulator.getState();
+    if (!state?.speculation) {
+      this.specEventLogDiv.innerHTML = '<div class="no-events">No events</div>';
+      return;
+    }
+
+    const events = state.speculation.events;
+    const currentCycle = state.architectural.cycle;
+    
+    // Show only events from the current cycle (latest cycle just completed)
+    const currentCycleEvents = events.filter(e => e.cycle === currentCycle - 1);
+    
+    if (currentCycleEvents.length === 0) {
+      this.specEventLogDiv.innerHTML = '<div class="no-events">No events this cycle</div>';
+      return;
+    }
+
+    this.specEventLogDiv.innerHTML = currentCycleEvents
+      .map(e => `
+        <div class="event-entry event-${this.getSpeculationEventClass(e.type)}">
+          <span class="event-type">${e.type}</span>
+          <span class="event-msg">${e.message}</span>
+        </div>
+      `)
+      .join('');
+  }
+
+  private getSpeculationEventClass(type: SpeculationEventType): string {
+    switch (type) {
+      case SpeculationEventType.ISSUE: return 'issue';
+      case SpeculationEventType.ISSUE_STALL_RS_FULL:
+      case SpeculationEventType.ISSUE_STALL_ROB_FULL: return 'stall';
+      case SpeculationEventType.EXEC_START:
+      case SpeculationEventType.EXEC_CONTINUE:
+      case SpeculationEventType.EXEC_END: return 'execute';
+      case SpeculationEventType.CDB_BROADCAST: return 'broadcast';
+      case SpeculationEventType.CDB_CONTENTION: return 'contention';
+      case SpeculationEventType.RS_OPERAND_WAKEUP: return 'wakeup';
+      case SpeculationEventType.ROB_COMMIT: return 'commit';
+      case SpeculationEventType.BRANCH_RESOLVE:
+      case SpeculationEventType.BRANCH_PREDICT:
+      case SpeculationEventType.BRANCH_CORRECT: return 'branch';
+      case SpeculationEventType.BRANCH_MISPREDICT: return 'misprediction';
+      case SpeculationEventType.ROB_SQUASH:
+      case SpeculationEventType.RECOVERY_SQUASH: return 'squash';
+      case SpeculationEventType.RECOVERY_START:
+      case SpeculationEventType.RECOVERY_COMPLETE: return 'recovery';
+      case SpeculationEventType.MEM_READ:
+      case SpeculationEventType.MEM_WRITE: return 'memory';
+      case SpeculationEventType.ERROR: return 'error';
+      default: return 'default';
+    }
+  }
+
+  // ========== End Speculation-specific UI Methods ==========
+
   private clearUI(): void {
     this.registersDiv.innerHTML = '<div class="stage-empty">No program loaded</div>';
     this.pipelineStagesDiv.innerHTML = '<div class="stage-empty">No program loaded</div>';
@@ -1025,6 +1457,15 @@ export class SimulatorPage {
     if (this.instructionStatusDiv) this.instructionStatusDiv.innerHTML = '';
     if (this.rsDisplayDiv) this.rsDisplayDiv.innerHTML = '';
     if (this.ratDisplayDiv) this.ratDisplayDiv.innerHTML = '';
+    
+    // Clear Speculation UI elements
+    if (this.robDisplayDiv) this.robDisplayDiv.innerHTML = '';
+    if (this.specCdbStatusDiv) this.specCdbStatusDiv.innerHTML = '';
+    if (this.specInstructionStatusDiv) this.specInstructionStatusDiv.innerHTML = '';
+    if (this.specRsDisplayDiv) this.specRsDisplayDiv.innerHTML = '';
+    if (this.specRatDisplayDiv) this.specRatDisplayDiv.innerHTML = '';
+    if (this.branchPredictionDiv) this.branchPredictionDiv.innerHTML = '';
+    if (this.specEventLogDiv) this.specEventLogDiv.innerHTML = '';
   }
 
   private setStatus(message: string, type: 'success' | 'error' | 'running' | 'info'): void {

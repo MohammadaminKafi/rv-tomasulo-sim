@@ -17,6 +17,7 @@ import { createMachineState } from './state';
 import { ExecutionModel } from './execution/base';
 import { PipelineExecutionModel } from './execution/pipeline';
 import { TomasuloExecutionModel } from './execution/tomasulo';
+import { SpeculationExecutionModel } from './execution/speculation';
 
 /**
  * Main simulator class
@@ -46,7 +47,8 @@ export class Simulator {
       this.state = createMachineState(
         this.config.mode,
         instructions,
-        this.config.tomasuloConfig
+        this.config.tomasuloConfig,
+        this.config.speculationConfig
       );
 
       // Create execution model
@@ -196,6 +198,27 @@ export class Simulator {
       };
     }
 
+    // Handle Speculation mode stats
+    if (this.state.speculation) {
+      const speculation = this.state.speculation;
+      const instructionsCompleted = speculation.instructionsCommitted;
+      
+      return {
+        entries: [...this.trace],
+        events: [],
+        statistics: {
+          totalCycles,
+          instructionsCompleted,
+          stallCycles: speculation.issueStalls,
+          flushCount: speculation.mispredictCount,
+          forwardingEvents: speculation.cdbBroadcasts,
+          memoryReads: speculation.memoryReads,
+          memoryWrites: speculation.memoryWrites,
+          ipc: totalCycles > 0 ? instructionsCompleted / totalCycles : 0,
+        },
+      };
+    }
+
     return {
       entries: [...this.trace],
       events: [],
@@ -241,7 +264,8 @@ export class Simulator {
       this.state = createMachineState(
         this.config.mode,
         instructions,
-        this.config.tomasuloConfig
+        this.config.tomasuloConfig,
+        this.config.speculationConfig
       );
       this.executionModel = this.createExecutionModel(this.config.mode);
       this.trace = [];
@@ -261,9 +285,11 @@ export class Simulator {
         return new TomasuloExecutionModel(this.config.tomasuloConfig);
       
       case ExecutionMode.TOMASULO_SPECULATION:
+        return new SpeculationExecutionModel(this.config.speculationConfig);
+      
       case ExecutionMode.TOMASULO_BRANCH_PRED:
-        // TODO: Implement speculation models in later phases
-        throw new Error(`Execution mode ${mode} not yet implemented`);
+        // Phase 4: Branch prediction will build on speculation
+        return new SpeculationExecutionModel(this.config.speculationConfig);
       
       default:
         throw new Error(`Unknown execution mode: ${mode}`);

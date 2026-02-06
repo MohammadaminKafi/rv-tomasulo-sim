@@ -1964,3 +1964,222 @@ body {
 .event-entry.event-wakeup {
   border-left-color: #9b59b6;
 }
+
+/* ============================================================================
+   Speculation UI Styles
+   ============================================================================ */
+
+/* ROB Display Styles */
+.rob-display-section {
+  padding: 0.5rem 0;
+}
+
+.rob-info {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.rob-info span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.rob-table th,
+.rob-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rob-table th {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.rob-table tr.rob-empty td {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.rob-index {
+  position: relative;
+  font-weight: 600;
+}
+
+.rob-marker {
+  display: inline-block;
+  margin-left: 0.25rem;
+  padding: 0 0.2rem;
+  border-radius: 2px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  vertical-align: super;
+}
+
+.rob-marker-head {
+  background: var(--success-color);
+  color: var(--bg-color);
+}
+
+.rob-marker-tail {
+  background: var(--warning-color);
+  color: var(--bg-color);
+}
+
+/* ROB state colors */
+.rob-table tr.rob-issue {
+  background: rgba(122, 165, 220, 0.1);
+}
+
+.rob-table tr.rob-executing {
+  background: rgba(78, 173, 127, 0.1);
+}
+
+.rob-table tr.rob-writeresult {
+  background: rgba(78, 173, 127, 0.2);
+}
+
+.rob-table tr.rob-commit {
+  background: rgba(78, 173, 127, 0.3);
+}
+
+.rob-table tr.rob-squashed {
+  background: rgba(212, 106, 106, 0.2);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.rob-table tr.rob-head td {
+  border-left: 2px solid var(--success-color);
+}
+
+.rob-table tr.rob-tail td {
+  border-right: 2px solid var(--warning-color);
+}
+
+/* Speculation Instruction Status */
+.speculation-instruction-status {
+  overflow-x: auto;
+}
+
+.instruction-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.instruction-status-table th,
+.instruction-status-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.instruction-status-table th {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.instruction-status-table .instruction-text {
+  text-align: left;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: var(--primary-light);
+}
+
+.instruction-status-table tr.instruction-squashed {
+  background: rgba(212, 106, 106, 0.15);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.instruction-status-table tr.instruction-squashed .instruction-text {
+  color: var(--error-color);
+}
+
+/* Branch Prediction Display */
+.branch-prediction-section {
+  padding: 0.5rem 0;
+}
+
+.bp-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.bp-stat {
+  background: var(--code-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bp-stat-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.bp-stat-value {
+  color: var(--text-color);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.bp-policy {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* Speculation Event Log Styles */
+.event-entry.event-commit {
+  border-left-color: var(--success-color);
+}
+
+.event-entry.event-branch {
+  border-left-color: var(--primary-light);
+}
+
+.event-entry.event-misprediction {
+  border-left-color: var(--error-color);
+  background: rgba(212, 106, 106, 0.1);
+}
+
+.event-entry.event-squash {
+  border-left-color: var(--error-color);
+}
+
+.event-entry.event-recovery {
+  border-left-color: var(--warning-color);
+  background: rgba(212, 163, 78, 0.1);
+}
+
+/* Speculation content visibility toggle */
+.speculation-content {
+  display: none;
+}
+
+.speculation-content.visible {
+  display: grid;
+}
+
