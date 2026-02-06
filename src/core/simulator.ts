@@ -16,6 +16,7 @@ import { parseProgram } from './instruction';
 import { createMachineState } from './state';
 import { ExecutionModel } from './execution/base';
 import { PipelineExecutionModel } from './execution/pipeline';
+import { TomasuloExecutionModel } from './execution/tomasulo';
 
 /**
  * Main simulator class
@@ -123,27 +124,90 @@ export class Simulator {
     if (!this.state) {
       return {
         entries: [],
+        events: [],
         statistics: {
           totalCycles: 0,
-          instructionsExecuted: 0,
-          stalls: 0,
+          instructionsCompleted: 0,
+          stallCycles: 0,
+          flushCount: 0,
+          forwardingEvents: 0,
+          memoryReads: 0,
+          memoryWrites: 0,
           ipc: 0,
         },
       };
     }
 
     const totalCycles = this.state.architectural.cycle;
-    const instructionsExecuted = this.trace.filter(
-      (t) => t.stage === 'WB' || t.stage === 'MEM/WB'
-    ).length;
+    
+    // Handle Pipeline mode stats
+    if (this.state.pipeline) {
+      const pipeline = this.state.pipeline;
+      const instructionsCompleted = pipeline.instructionsCompleted;
+      const stallCycles = pipeline.stallCycles;
+      const flushCount = pipeline.flushCount;
+      const forwardingEvents = pipeline.forwardingEvents;
+      
+      // Get memory stats from execution model if available
+      let memoryReads = 0;
+      let memoryWrites = 0;
+      if (this.executionModel && 'getMemoryStats' in this.executionModel) {
+        const stats = (this.executionModel as { getMemoryStats(): { reads: number; writes: number } }).getMemoryStats();
+        memoryReads = stats.reads;
+        memoryWrites = stats.writes;
+      }
+
+      return {
+        entries: [...this.trace],
+        events: pipeline.events,
+        statistics: {
+          totalCycles,
+          instructionsCompleted,
+          stallCycles,
+          flushCount,
+          forwardingEvents,
+          memoryReads,
+          memoryWrites,
+          ipc: totalCycles > 0 ? instructionsCompleted / totalCycles : 0,
+        },
+      };
+    }
+    
+    // Handle Tomasulo mode stats
+    if (this.state.tomasulo) {
+      const tomasulo = this.state.tomasulo;
+      const instructionsCompleted = tomasulo.instructionStatus.filter(
+        s => s.writeResultCycle !== null
+      ).length;
+      
+      return {
+        entries: [...this.trace],
+        events: [],
+        statistics: {
+          totalCycles,
+          instructionsCompleted,
+          stallCycles: tomasulo.issueStalls,
+          flushCount: 0,
+          forwardingEvents: tomasulo.cdbBroadcasts,
+          memoryReads: tomasulo.memoryReads,
+          memoryWrites: tomasulo.memoryWrites,
+          ipc: totalCycles > 0 ? instructionsCompleted / totalCycles : 0,
+        },
+      };
+    }
 
     return {
       entries: [...this.trace],
+      events: [],
       statistics: {
         totalCycles,
-        instructionsExecuted,
-        stalls: this.state.pipeline?.stalls ?? 0,
-        ipc: totalCycles > 0 ? instructionsExecuted / totalCycles : 0,
+        instructionsCompleted: 0,
+        stallCycles: 0,
+        flushCount: 0,
+        forwardingEvents: 0,
+        memoryReads: 0,
+        memoryWrites: 0,
+        ipc: 0,
       },
     };
   }
@@ -190,12 +254,15 @@ export class Simulator {
   private createExecutionModel(mode: ExecutionMode): ExecutionModel {
     switch (mode) {
       case ExecutionMode.PIPELINE:
-        return new PipelineExecutionModel();
+        const forwardingEnabled = this.config.pipelineConfig?.dataForwarding ?? true;
+        return new PipelineExecutionModel(forwardingEnabled);
       
       case ExecutionMode.TOMASULO:
+        return new TomasuloExecutionModel(this.config.tomasuloConfig);
+      
       case ExecutionMode.TOMASULO_SPECULATION:
       case ExecutionMode.TOMASULO_BRANCH_PRED:
-        // TODO: Implement Tomasulo models in later phases
+        // TODO: Implement speculation models in later phases
         throw new Error(`Execution mode ${mode} not yet implemented`);
       
       default:

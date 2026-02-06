@@ -99,11 +99,14 @@ export function parseInstruction(line: string, address: number, labels: Map<stri
 
       // I-type: op rd, rs1, imm
       case 'ADDI':
+      case 'SUBI':
+      case 'MULI':
+      case 'DIVI':
         if (tokens.length !== 4) {
           throw new Error(`${opcode} requires 3 operands`);
         }
         return {
-          type: InstructionType.ADDI,
+          type: InstructionType[opcode as keyof typeof InstructionType],
           rd: parseRegister(tokens[1]),
           rs1: parseRegister(tokens[2]),
           imm: parseImmediate(tokens[3]),

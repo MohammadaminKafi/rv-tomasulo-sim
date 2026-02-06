@@ -5,7 +5,15 @@
 import { Router } from './router';
 import { CodeEditor } from './codeEditor';
 import { Simulator } from '../core/simulator';
-import { ExecutionMode } from '../core/types';
+import { 
+  ExecutionMode, 
+  PipelineEvent, 
+  EventType,
+  TomasuloEvent,
+  TomasuloEventType,
+  RSState,
+  RSType,
+} from '../core/types';
 
 export class SimulatorPage {
   private router: Router;
@@ -13,20 +21,35 @@ export class SimulatorPage {
   private codeEditor: CodeEditor | null;
   private isRunning: boolean;
   private runInterval: number | null;
+  private runSpeed: number = 200; // ms between steps
 
   // UI Elements
   private loadProgramBtn!: HTMLButtonElement;
   private stepBtn!: HTMLButtonElement;
   private runBtn!: HTMLButtonElement;
   private resetBtn!: HTMLButtonElement;
+  private runNCyclesBtn!: HTMLButtonElement;
+  private runToEndBtn!: HTMLButtonElement;
   private modeSelect!: HTMLSelectElement;
+  private speedSlider!: HTMLInputElement;
   private statusText!: HTMLElement;
-  private cycleCount!: HTMLElement;
   private registersDiv!: HTMLElement;
   private pipelineStagesDiv!: HTMLElement;
-  private statInstructions!: HTMLElement;
-  private statCycles!: HTMLElement;
-  private statIPC!: HTMLElement;
+  private pipelineRegistersDiv!: HTMLElement;
+  private eventLogDiv!: HTMLElement;
+  private memoryDiv!: HTMLElement;
+  private statsDiv!: HTMLElement;
+  private pcDisplay!: HTMLElement;
+  private cycleDisplay!: HTMLElement;
+  
+  // Tomasulo UI Elements
+  private pipelineContent!: HTMLElement;
+  private tomasuloContent!: HTMLElement;
+  private middlePanelTitle!: HTMLElement;
+  private cdbStatusDiv!: HTMLElement;
+  private instructionStatusDiv!: HTMLElement;
+  private rsDisplayDiv!: HTMLElement;
+  private ratDisplayDiv!: HTMLElement;
 
   constructor(router: Router) {
     this.router = router;
@@ -39,77 +62,139 @@ export class SimulatorPage {
   render(container: HTMLElement): void {
     container.innerHTML = `
       <div class="simulator-page">
-        <div class="simulator-layout">
-          <!-- Left Panel: Editor -->
-          <div class="editor-panel">
-            <div class="panel">
+        <div class="simulator-layout-new">
+          <!-- Left Column: Editor + Controls -->
+          <div class="sim-left-column">
+            <div class="panel editor-panel-new">
               <div class="panel-header">
                 <h2>Assembly Code</h2>
               </div>
               <div id="simulator-editor" class="editor-container editor-simulator"></div>
             </div>
 
-            <div class="panel controls-panel">
+            <div class="panel controls-panel-new">
               <div class="panel-header">
                 <h2>Controls</h2>
               </div>
               
-              <div class="controls">
-                <button id="load-program-btn" class="btn btn-primary">Load</button>
-                <button id="step-btn" class="btn">Step</button>
-                <button id="run-btn" class="btn">Run</button>
+              <div class="controls-grid">
+                <button id="load-program-btn" class="btn btn-primary">Load/Assemble</button>
                 <button id="reset-btn" class="btn">Reset</button>
+                <button id="step-btn" class="btn btn-accent">Step</button>
+                <button id="run-btn" class="btn">Run</button>
+                <button id="run-n-cycles-btn" class="btn">Run 10 Cycles</button>
+                <button id="run-to-end-btn" class="btn">Run to End</button>
+              </div>
+
+              <div class="speed-control">
+                <label for="speed-slider">Speed:</label>
+                <input type="range" id="speed-slider" min="10" max="500" value="200" />
+                <span id="speed-display">200ms</span>
               </div>
 
               <div class="mode-selection">
-                <label for="mode-select">Execution Mode:</label>
+                <label for="mode-select">Mode:</label>
                 <select id="mode-select">
                   <option value="PIPELINE" selected>5-Stage Pipeline</option>
-                  <option value="TOMASULO" disabled>Tomasulo (Phase 2)</option>
-                  <option value="TOMASULO_SPECULATION" disabled>Tomasulo + Speculation (Phase 3)</option>
-                  <option value="TOMASULO_BRANCH_PRED" disabled>Tomasulo + Branch Pred (Phase 4)</option>
+                  <option value="TOMASULO">Tomasulo Algorithm</option>
                 </select>
               </div>
 
-              <div class="stats-compact">
-                <div class="stat-row">
-                  <span class="stat-label">Cycle:</span>
-                  <span id="stat-cycles" class="stat-value">0</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">Instructions:</span>
-                  <span id="stat-instructions" class="stat-value">0</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">IPC:</span>
-                  <span id="stat-ipc" class="stat-value">0.00</span>
-                </div>
-              </div>
-
-              <div id="status" class="status">
+              <div id="status" class="status-bar">
                 <span class="status-label">Status:</span>
-                <span id="status-text">Ready</span>
+                <span id="status-text" class="status-text">Ready</span>
               </div>
             </div>
           </div>
 
-          <!-- Right Panel: Visualization -->
-          <div class="visualization-panel">
+          <!-- Middle Column: Execution State Visualization -->
+          <div class="sim-middle-column">
             <div class="panel">
               <div class="panel-header">
-                <h2>Machine State</h2>
+                <h2 id="middle-panel-title">Pipeline State</h2>
+                <div class="cycle-pc-display">
+                  <span>Cycle: <strong id="cycle-display">0</strong></span>
+                  <span>PC: <strong id="pc-display">0x0</strong></span>
+                </div>
               </div>
               
-              <div class="state-section">
-                <h3>Pipeline Stages</h3>
-                <div id="pipeline-stages" class="pipeline-visualization"></div>
+              <!-- Pipeline Mode Content -->
+              <div id="pipeline-content">
+                <div class="state-section">
+                  <h3>Stage Occupancy</h3>
+                  <div id="pipeline-stages" class="pipeline-stages-grid"></div>
+                </div>
+
+                <div class="state-section">
+                  <h3>Pipeline Registers</h3>
+                  <div id="pipeline-registers" class="pipeline-registers-grid"></div>
+                </div>
+              </div>
+              
+              <!-- Tomasulo Mode Content -->
+              <div id="tomasulo-content" class="hidden">
+                <div class="state-section">
+                  <h3>CDB Status</h3>
+                  <div id="cdb-status" class="cdb-status-display"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>Instruction Status</h3>
+                  <div id="instruction-status" class="instruction-status-table"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>Reservation Stations</h3>
+                  <div id="reservation-stations" class="rs-display"></div>
+                </div>
+                
+                <div class="state-section">
+                  <h3>RAT (Register Alias Table)</h3>
+                  <div id="rat-display" class="rat-display"></div>
+                </div>
               </div>
 
               <div class="state-section">
-                <h3>Registers</h3>
-                <div id="registers" class="registers-grid-compact"></div>
+                <h3>Event Log <span class="event-log-hint">(click for full log)</span></h3>
+                <div id="event-log" class="event-log clickable"></div>
               </div>
             </div>
+          </div>
+
+          <!-- Right Column: Registers + Memory + Stats -->
+          <div class="sim-right-column">
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Registers (x0-x31)</h2>
+              </div>
+              <div id="registers" class="registers-grid-new"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Memory</h2>
+              </div>
+              <div id="memory-view" class="memory-view"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Statistics</h2>
+              </div>
+              <div id="stats" class="stats-grid"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Event Log Modal -->
+        <div id="event-log-modal" class="modal hidden">
+          <div class="modal-backdrop"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2>Complete Event Log</h2>
+              <button id="modal-close-btn" class="modal-close">&times;</button>
+            </div>
+            <div id="modal-event-list" class="modal-body"></div>
           </div>
         </div>
       </div>
@@ -120,14 +205,28 @@ export class SimulatorPage {
     this.stepBtn = document.getElementById('step-btn') as HTMLButtonElement;
     this.runBtn = document.getElementById('run-btn') as HTMLButtonElement;
     this.resetBtn = document.getElementById('reset-btn') as HTMLButtonElement;
+    this.runNCyclesBtn = document.getElementById('run-n-cycles-btn') as HTMLButtonElement;
+    this.runToEndBtn = document.getElementById('run-to-end-btn') as HTMLButtonElement;
     this.modeSelect = document.getElementById('mode-select') as HTMLSelectElement;
+    this.speedSlider = document.getElementById('speed-slider') as HTMLInputElement;
     this.statusText = document.getElementById('status-text') as HTMLElement;
-    this.cycleCount = document.getElementById('cycle-count') as HTMLElement;
     this.registersDiv = document.getElementById('registers') as HTMLElement;
     this.pipelineStagesDiv = document.getElementById('pipeline-stages') as HTMLElement;
-    this.statInstructions = document.getElementById('stat-instructions') as HTMLElement;
-    this.statCycles = document.getElementById('stat-cycles') as HTMLElement;
-    this.statIPC = document.getElementById('stat-ipc') as HTMLElement;
+    this.pipelineRegistersDiv = document.getElementById('pipeline-registers') as HTMLElement;
+    this.eventLogDiv = document.getElementById('event-log') as HTMLElement;
+    this.memoryDiv = document.getElementById('memory-view') as HTMLElement;
+    this.statsDiv = document.getElementById('stats') as HTMLElement;
+    this.pcDisplay = document.getElementById('pc-display') as HTMLElement;
+    this.cycleDisplay = document.getElementById('cycle-display') as HTMLElement;
+    
+    // Tomasulo UI elements
+    this.pipelineContent = document.getElementById('pipeline-content') as HTMLElement;
+    this.tomasuloContent = document.getElementById('tomasulo-content') as HTMLElement;
+    this.middlePanelTitle = document.getElementById('middle-panel-title') as HTMLElement;
+    this.cdbStatusDiv = document.getElementById('cdb-status') as HTMLElement;
+    this.instructionStatusDiv = document.getElementById('instruction-status') as HTMLElement;
+    this.rsDisplayDiv = document.getElementById('reservation-stations') as HTMLElement;
+    this.ratDisplayDiv = document.getElementById('rat-display') as HTMLElement;
 
     // Initialize code editor
     const savedCode = localStorage.getItem('assemblyCode') || this.getDefaultCode();
@@ -145,7 +244,62 @@ export class SimulatorPage {
     this.stepBtn.addEventListener('click', () => this.step());
     this.runBtn.addEventListener('click', () => this.toggleRun());
     this.resetBtn.addEventListener('click', () => this.reset());
+    this.runNCyclesBtn.addEventListener('click', () => this.runNCycles(10));
+    this.runToEndBtn.addEventListener('click', () => this.runToEnd());
     this.modeSelect.addEventListener('change', () => this.changeMode());
+    this.speedSlider.addEventListener('input', () => {
+      this.runSpeed = parseInt(this.speedSlider.value);
+      const display = document.getElementById('speed-display');
+      if (display) display.textContent = `${this.runSpeed}ms`;
+    });
+
+    // Event log modal
+    this.eventLogDiv.addEventListener('click', () => this.showEventLogModal());
+    
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+    const modalBackdrop = document.querySelector('.modal-backdrop');
+    const modal = document.getElementById('event-log-modal');
+    
+    modalCloseBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
+    modalBackdrop?.addEventListener('click', () => modal?.classList.add('hidden'));
+  }
+
+  private showEventLogModal(): void {
+    const state = this.simulator.getState();
+    const modal = document.getElementById('event-log-modal');
+    const eventList = document.getElementById('modal-event-list');
+    
+    if (!modal || !eventList) return;
+    
+    if (!state?.pipeline || state.pipeline.events.length === 0) {
+      eventList.innerHTML = '<div class="no-events">No events recorded</div>';
+    } else {
+      // Group events by cycle
+      const eventsByCycle = new Map<number, PipelineEvent[]>();
+      for (const event of state.pipeline.events) {
+        if (!eventsByCycle.has(event.cycle)) {
+          eventsByCycle.set(event.cycle, []);
+        }
+        eventsByCycle.get(event.cycle)!.push(event);
+      }
+      
+      // Sort cycles in descending order (newest first)
+      const sortedCycles = Array.from(eventsByCycle.keys()).sort((a, b) => b - a);
+      
+      eventList.innerHTML = sortedCycles.map(cycle => `
+        <div class="modal-cycle-group">
+          <div class="modal-cycle-header">Cycle ${cycle}</div>
+          ${eventsByCycle.get(cycle)!.map(e => `
+            <div class="event-entry event-${this.getEventClass(e.type)}">
+              <span class="event-type">${e.type}</span>
+              <span class="event-msg">${e.message}</span>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    }
+    
+    modal.classList.remove('hidden');
   }
 
   private handleLoadProgram(): void {
@@ -173,7 +327,12 @@ export class SimulatorPage {
   private step(): void {
     try {
       if (this.simulator.isHalted()) {
-        this.setStatus('Program completed', 'success');
+        const state = this.simulator.getState();
+        if (state?.architectural.errorMessage) {
+          this.setStatus(`Error: ${state.architectural.errorMessage}`, 'error');
+        } else {
+          this.setStatus('Program completed', 'success');
+        }
         return;
       }
 
@@ -181,7 +340,12 @@ export class SimulatorPage {
       this.updateUI();
 
       if (this.simulator.isHalted()) {
-        this.setStatus('Program completed', 'success');
+        const state = this.simulator.getState();
+        if (state?.architectural.errorMessage) {
+          this.setStatus(`Error: ${state.architectural.errorMessage}`, 'error');
+        } else {
+          this.setStatus('Program completed', 'success');
+        }
         this.stopRunning();
       } else {
         this.setStatus('Running...', 'running');
@@ -190,6 +354,41 @@ export class SimulatorPage {
       this.setStatus(`Error: ${(error as Error).message}`, 'error');
       this.stopRunning();
       console.error(error);
+    }
+  }
+
+  private runNCycles(n: number): void {
+    for (let i = 0; i < n && !this.simulator.isHalted(); i++) {
+      this.simulator.step();
+    }
+    this.updateUI();
+    if (this.simulator.isHalted()) {
+      const state = this.simulator.getState();
+      if (state?.architectural.errorMessage) {
+        this.setStatus(`Error: ${state.architectural.errorMessage}`, 'error');
+      } else {
+        this.setStatus('Program completed', 'success');
+      }
+    }
+  }
+
+  private runToEnd(): void {
+    let cycles = 0;
+    const maxCycles = 10000;
+    while (!this.simulator.isHalted() && cycles < maxCycles) {
+      this.simulator.step();
+      cycles++;
+    }
+    this.updateUI();
+    if (cycles >= maxCycles) {
+      this.setStatus('Max cycles reached (10000)', 'error');
+    } else {
+      const state = this.simulator.getState();
+      if (state?.architectural.errorMessage) {
+        this.setStatus(`Error: ${state.architectural.errorMessage}`, 'error');
+      } else {
+        this.setStatus('Program completed', 'success');
+      }
     }
   }
 
@@ -205,17 +404,21 @@ export class SimulatorPage {
     this.isRunning = true;
     this.runBtn.textContent = 'Pause';
     this.stepBtn.disabled = true;
+    this.runNCyclesBtn.disabled = true;
+    this.runToEndBtn.disabled = true;
     this.modeSelect.disabled = true;
 
     this.runInterval = window.setInterval(() => {
       this.step();
-    }, 100);
+    }, this.runSpeed);
   }
 
   private stopRunning(): void {
     this.isRunning = false;
     this.runBtn.textContent = 'Run';
     this.stepBtn.disabled = false;
+    this.runNCyclesBtn.disabled = false;
+    this.runToEndBtn.disabled = false;
     this.modeSelect.disabled = false;
 
     if (this.runInterval !== null) {
@@ -241,6 +444,19 @@ export class SimulatorPage {
 
   private changeMode(): void {
     this.setStatus('Mode changed - resetting simulator', 'info');
+    
+    // Update UI visibility based on mode
+    const mode = this.modeSelect.value as ExecutionMode;
+    if (mode === ExecutionMode.PIPELINE) {
+      this.pipelineContent.classList.remove('hidden');
+      this.tomasuloContent.classList.add('hidden');
+      this.middlePanelTitle.textContent = 'Pipeline State';
+    } else {
+      this.pipelineContent.classList.add('hidden');
+      this.tomasuloContent.classList.remove('hidden');
+      this.middlePanelTitle.textContent = 'Tomasulo State';
+    }
+    
     const assembly = this.codeEditor?.getValue() || '';
     this.loadProgram(assembly);
   }
@@ -253,33 +469,46 @@ export class SimulatorPage {
       return;
     }
 
+    // Update cycle and PC display
+    this.cycleDisplay.textContent = state.architectural.cycle.toString();
+    this.pcDisplay.textContent = `0x${state.architectural.pc.toString(16).toUpperCase()}`;
+
     // Update statistics
-    const trace = this.simulator.getTrace();
-    this.statInstructions.textContent = trace.statistics.instructionsExecuted.toString();
-    this.statCycles.textContent = trace.statistics.totalCycles.toString();
-    this.statIPC.textContent = trace.statistics.ipc.toFixed(2);
+    this.updateStats();
 
     // Highlight current line in editor
     this.updateCurrentLine();
 
-    // Update registers
+    // Update registers (common to both modes)
     this.updateRegisters(state.architectural.registers.registers);
 
-    // Update pipeline stages
-    this.updatePipelineStages();
+    // Update memory view (common to both modes)
+    this.updateMemoryView();
+
+    // Mode-specific updates
+    if (state.mode === ExecutionMode.PIPELINE && state.pipeline) {
+      this.updatePipelineStages();
+      this.updatePipelineRegisters();
+      this.updatePipelineEventLog();
+    } else if (state.mode === ExecutionMode.TOMASULO && state.tomasulo) {
+      this.updateTomasuloCDB();
+      this.updateInstructionStatus();
+      this.updateReservationStations();
+      this.updateRAT();
+      this.updateTomasuloEventLog();
+    }
   }
 
   private updateCurrentLine(): void {
     const state = this.simulator.getState();
     if (!state) return;
 
-    const trace = this.simulator.getTrace();
-    const currentCycle = state.architectural.cycle;
-    
-    // Get most recent instruction in pipeline
-    const currentTraces = trace.entries.filter(t => t.cycle === currentCycle);
-    if (currentTraces.length > 0 && currentTraces[0].instruction.lineNumber) {
-      this.codeEditor?.highlightLine(currentTraces[0].instruction.lineNumber);
+    // Highlight the instruction currently in IF stage
+    const regs = state.pipeline?.registers;
+    if (regs?.IFID.valid && regs.IFID.instruction?.lineNumber) {
+      this.codeEditor?.highlightLine(regs.IFID.instruction.lineNumber);
+    } else if (regs?.IDEX.valid && regs.IDEX.instruction?.lineNumber) {
+      this.codeEditor?.highlightLine(regs.IDEX.instruction.lineNumber);
     }
   }
 
@@ -288,12 +517,17 @@ export class SimulatorPage {
     
     for (let i = 0; i < 32; i++) {
       const regDiv = document.createElement('div');
-      regDiv.className = 'register-compact';
+      regDiv.className = 'register-cell';
       
-      const content = `<span class="reg-name">x${i}</span><span class="reg-value">${registers[i]}</span>`;
-      regDiv.innerHTML = content;
+      const value = registers[i];
+      const hexValue = (value >>> 0).toString(16).toUpperCase().padStart(8, '0');
       
-      if (i !== 0 && registers[i] !== 0) {
+      regDiv.innerHTML = `
+        <span class="reg-name">x${i}</span>
+        <span class="reg-value" title="0x${hexValue}">${value}</span>
+      `;
+      
+      if (i !== 0 && value !== 0) {
         regDiv.classList.add('register-active');
       }
       
@@ -302,49 +536,495 @@ export class SimulatorPage {
   }
 
   private updatePipelineStages(): void {
-    const trace = this.simulator.getTrace();
-    const currentCycle = this.simulator.getState()?.architectural.cycle ?? 0;
-    
-    const currentTraces = trace.entries.filter(t => t.cycle === currentCycle);
-    
-    const stageMap = new Map<string, string>();
-    for (const t of currentTraces) {
-      stageMap.set(t.stage, t.instruction.text);
+    const state = this.simulator.getState();
+    if (!state?.pipeline) {
+      this.pipelineStagesDiv.innerHTML = '<div class="stage-empty">No pipeline state</div>';
+      return;
     }
 
-    const stages = ['IF', 'ID', 'EX', 'MEM', 'WB'];
-    this.pipelineStagesDiv.innerHTML = '';
+    const regs = state.pipeline.registers;
+    
+    // Pipeline registers contain the instruction that just completed each stage:
+    // IF/ID: instruction that finished IF (now entering ID)
+    // ID/EX: instruction that finished ID (now entering EX)
+    // EX/MEM: instruction that finished EX (now entering MEM)
+    // MEM/WB: instruction that finished MEM (now entering WB)
+    const stages = [
+      { name: 'IF', instr: regs.IFID.valid ? regs.IFID.instruction?.text : null, 
+        extra: regs.IFID.valid ? `PC: 0x${regs.IFID.pc.toString(16)}` : '' },
+      { name: 'ID', instr: regs.IDEX.valid ? regs.IDEX.instruction?.text : null, extra: '' },
+      { name: 'EX', instr: regs.EXMEM.valid ? regs.EXMEM.instruction?.text : null, 
+        extra: regs.IDEX.valid && regs.IDEX.exCyclesRemaining > 1 ? `(${regs.IDEX.exCyclesRemaining} cycles left)` : '' },
+      { name: 'MEM', instr: regs.MEMWB.valid ? regs.MEMWB.instruction?.text : null, extra: '' },
+      { name: 'WB', instr: state.pipeline.lastWBInstruction || null, extra: '' },
+    ];
 
-    for (const stage of stages) {
-      const stageDiv = document.createElement('div');
-      stageDiv.className = 'pipeline-stage';
-      
-      const nameDiv = document.createElement('div');
-      nameDiv.className = 'stage-name';
-      nameDiv.textContent = stage;
-      
-      const instrDiv = document.createElement('div');
-      
-      if (stageMap.has(stage) || stageMap.has('MEM/WB') && (stage === 'MEM' || stage === 'WB')) {
-        instrDiv.className = 'stage-instruction';
-        instrDiv.textContent = stageMap.get(stage) ?? stageMap.get('MEM/WB') ?? '';
-      } else {
-        instrDiv.className = 'stage-empty';
-        instrDiv.textContent = 'bubble';
-      }
-      
-      stageDiv.appendChild(nameDiv);
-      stageDiv.appendChild(instrDiv);
-      this.pipelineStagesDiv.appendChild(stageDiv);
+    this.pipelineStagesDiv.innerHTML = stages.map(s => `
+      <div class="stage-box ${s.instr ? 'stage-occupied' : 'stage-bubble'}">
+        <div class="stage-name">${s.name}</div>
+        <div class="stage-content">${s.instr || 'bubble'}</div>
+        ${s.extra ? `<div class="stage-extra">${s.extra}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  private updatePipelineRegisters(): void {
+    const state = this.simulator.getState();
+    if (!state?.pipeline) {
+      this.pipelineRegistersDiv.innerHTML = '';
+      return;
+    }
+
+    const regs = state.pipeline.registers;
+    
+    // Create tree data for each register
+    const treeData = [
+      {
+        name: 'IF/ID',
+        valid: regs.IFID.valid,
+        instr: regs.IFID.instruction?.text || '-',
+        fields: [
+          { key: 'pc', value: `0x${regs.IFID.pc.toString(16).toUpperCase()}` },
+          { key: 'valid', value: regs.IFID.valid },
+        ]
+      },
+      {
+        name: 'ID/EX',
+        valid: regs.IDEX.valid,
+        instr: regs.IDEX.instruction?.text || '-',
+        fields: [
+          { key: 'rs1', value: regs.IDEX.rs1 ?? '-' },
+          { key: 'rs1Value', value: regs.IDEX.rs1Value },
+          { key: 'rs2', value: regs.IDEX.rs2 ?? '-' },
+          { key: 'rs2Value', value: regs.IDEX.rs2Value },
+          { key: 'rd', value: regs.IDEX.rd ?? '-' },
+          { key: 'imm', value: regs.IDEX.imm ?? '-' },
+          { key: 'exCyclesRemaining', value: regs.IDEX.exCyclesRemaining },
+        ]
+      },
+      {
+        name: 'EX/MEM',
+        valid: regs.EXMEM.valid,
+        instr: regs.EXMEM.instruction?.text || '-',
+        fields: [
+          { key: 'aluResult', value: regs.EXMEM.aluResult },
+          { key: 'rd', value: regs.EXMEM.rd ?? '-' },
+          { key: 'rs2Value', value: regs.EXMEM.rs2Value },
+          { key: 'branchTaken', value: regs.EXMEM.branchTaken },
+          { key: 'branchTarget', value: `0x${regs.EXMEM.branchTarget.toString(16).toUpperCase()}` },
+        ]
+      },
+      {
+        name: 'MEM/WB',
+        valid: regs.MEMWB.valid,
+        instr: regs.MEMWB.instruction?.text || '-',
+        fields: [
+          { key: 'result', value: regs.MEMWB.result },
+          { key: 'rd', value: regs.MEMWB.rd ?? '-' },
+          { key: 'writeReg', value: regs.MEMWB.writeReg },
+        ]
+      },
+    ];
+
+    this.pipelineRegistersDiv.innerHTML = treeData.map((reg, idx) => `
+      <div class="tree-node ${reg.valid ? 'tree-valid' : 'tree-invalid'}">
+        <div class="tree-header" data-tree-idx="${idx}">
+          <span class="tree-toggle">▶</span>
+          <span class="tree-name">${reg.name}</span>
+          <span class="tree-instr">${reg.valid ? reg.instr : 'bubble'}</span>
+        </div>
+        <div class="tree-children hidden">
+          ${reg.fields.map(f => `
+            <div class="tree-field">
+              <span class="tree-key">${f.key}:</span>
+              <span class="tree-value">${f.value}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    // Add click handlers for tree toggle
+    const headers = this.pipelineRegistersDiv.querySelectorAll('.tree-header');
+    headers.forEach(header => {
+      header.addEventListener('click', () => {
+        const toggle = header.querySelector('.tree-toggle');
+        const children = header.nextElementSibling;
+        if (toggle && children) {
+          if (children.classList.contains('hidden')) {
+            children.classList.remove('hidden');
+            toggle.textContent = '▼';
+          } else {
+            children.classList.add('hidden');
+            toggle.textContent = '▶';
+          }
+        }
+      });
+    });
+  }
+
+  private updatePipelineEventLog(): void {
+    const state = this.simulator.getState();
+    if (!state?.pipeline) {
+      this.eventLogDiv.innerHTML = '<div class="no-events">No events</div>';
+      return;
+    }
+
+    const events = state.pipeline.events;
+    const currentCycle = state.architectural.cycle;
+    
+    // Show only events from the current cycle (latest cycle just completed)
+    const currentCycleEvents = events.filter(e => e.cycle === currentCycle - 1);
+    
+    if (currentCycleEvents.length === 0) {
+      this.eventLogDiv.innerHTML = '<div class="no-events">No events this cycle</div>';
+      return;
+    }
+
+    this.eventLogDiv.innerHTML = currentCycleEvents
+      .map(e => `
+        <div class="event-entry event-${this.getEventClass(e.type)}">
+          <span class="event-type">${e.type}</span>
+          <span class="event-msg">${e.message}</span>
+        </div>
+      `)
+      .join('');
+  }
+
+  private getEventClass(type: EventType): string {
+    switch (type) {
+      case EventType.FORWARD: return 'forward';
+      case EventType.STALL_STRUCTURAL:
+      case EventType.STALL_DATA:
+      case EventType.STALL_BRANCH: return 'stall';
+      case EventType.FLUSH: return 'flush';
+      case EventType.ERROR: return 'error';
+      case EventType.WRITEBACK: return 'writeback';
+      case EventType.MEMORY_READ:
+      case EventType.MEMORY_WRITE: return 'memory';
+      default: return 'default';
     }
   }
+
+  private updateMemoryView(): void {
+    const state = this.simulator.getState();
+    if (!state) {
+      this.memoryDiv.innerHTML = '<div class="no-memory">No memory data</div>';
+      return;
+    }
+
+    const memory = state.architectural.memory.data;
+    
+    // Ensure we have a valid Map
+    if (!memory || !(memory instanceof Map) || memory.size === 0) {
+      this.memoryDiv.innerHTML = '<div class="no-memory">Memory is empty (use ST instruction to write)</div>';
+      return;
+    }
+
+    // Show all memory locations that have been written
+    const entries = Array.from(memory.entries())
+      .sort((a, b) => a[0] - b[0])
+      .slice(0, 32); // Limit display
+
+    this.memoryDiv.innerHTML = `
+      <div class="memory-header">
+        <span>Address</span>
+        <span>Value</span>
+      </div>
+      <div class="memory-grid">
+        ${entries.map(([addr, val]) => `
+          <div class="memory-cell">
+            <span class="mem-addr">0x${addr.toString(16).toUpperCase().padStart(4, '0')}</span>
+            <span class="mem-val">${val} (0x${(val >>> 0).toString(16).toUpperCase()})</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  private updateStats(): void {
+    const trace = this.simulator.getTrace();
+    const stats = trace.statistics;
+
+    this.statsDiv.innerHTML = `
+      <div class="stat-item">
+        <span class="stat-label">Cycles:</span>
+        <span class="stat-value">${stats.totalCycles}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Instructions:</span>
+        <span class="stat-value">${stats.instructionsCompleted}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">IPC:</span>
+        <span class="stat-value">${stats.ipc.toFixed(3)}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Stall Cycles:</span>
+        <span class="stat-value">${stats.stallCycles}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Flushes:</span>
+        <span class="stat-value">${stats.flushCount}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Forwards:</span>
+        <span class="stat-value">${stats.forwardingEvents}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Mem Reads:</span>
+        <span class="stat-value">${stats.memoryReads}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Mem Writes:</span>
+        <span class="stat-value">${stats.memoryWrites}</span>
+      </div>
+    `;
+  }
+
+  // ========== Tomasulo-specific UI Methods ==========
+
+  private updateTomasuloCDB(): void {
+    const state = this.simulator.getState();
+    if (!state?.tomasulo) {
+      this.cdbStatusDiv.innerHTML = '<div class="cdb-idle">No Tomasulo state</div>';
+      return;
+    }
+
+    const cdb = state.tomasulo.cdb;
+    if (!cdb) {
+      this.cdbStatusDiv.innerHTML = `
+        <div class="cdb-status-box cdb-idle">
+          <span class="cdb-label">CDB Status:</span>
+          <span class="cdb-value">Idle</span>
+        </div>
+      `;
+    } else {
+      this.cdbStatusDiv.innerHTML = `
+        <div class="cdb-status-box cdb-broadcasting">
+          <span class="cdb-label">CDB Broadcasting:</span>
+          <div class="cdb-details">
+            <span><strong>Tag:</strong> ${cdb.tag}</span>
+            <span><strong>Value:</strong> ${cdb.value}</span>
+            <span><strong>Dest:</strong> x${cdb.destReg}</span>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  private updateInstructionStatus(): void {
+    const state = this.simulator.getState();
+    if (!state?.tomasulo) {
+      this.instructionStatusDiv.innerHTML = '<div class="no-data">No instructions</div>';
+      return;
+    }
+
+    const status = state.tomasulo.instructionStatus;
+    if (status.length === 0) {
+      this.instructionStatusDiv.innerHTML = '<div class="no-data">No instructions issued yet</div>';
+      return;
+    }
+
+    this.instructionStatusDiv.innerHTML = `
+      <table class="instr-status-table">
+        <thead>
+          <tr>
+            <th>Instruction</th>
+            <th>Issue</th>
+            <th>Exec Start</th>
+            <th>Exec End</th>
+            <th>Write</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${status.map(s => `
+            <tr class="${s.writeResultCycle !== null ? 'completed' : 'in-progress'}">
+              <td class="instr-text">${s.instruction.text}</td>
+              <td>${s.issueCycle ?? '-'}</td>
+              <td>${s.execStartCycle ?? '-'}</td>
+              <td>${s.execEndCycle ?? '-'}</td>
+              <td>${s.writeResultCycle ?? '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private updateReservationStations(): void {
+    const state = this.simulator.getState();
+    if (!state?.tomasulo) {
+      this.rsDisplayDiv.innerHTML = '<div class="no-data">No reservation stations</div>';
+      return;
+    }
+
+    const rs = state.tomasulo.reservationStations;
+    
+    // Group by type
+    const byType = new Map<RSType, Array<{ id: string; rs: typeof rs extends Map<string, infer V> ? V : never }>>();
+    for (const [id, entry] of rs) {
+      const type = entry.rsType;
+      if (!byType.has(type)) {
+        byType.set(type, []);
+      }
+      byType.get(type)!.push({ id, rs: entry });
+    }
+
+    // Render each type
+    const typeOrder: RSType[] = [RSType.INT, RSType.MUL, RSType.DIV, RSType.LOAD, RSType.STORE, RSType.BRANCH];
+    
+    this.rsDisplayDiv.innerHTML = typeOrder
+      .filter(t => byType.has(t))
+      .map(type => {
+        const entries = byType.get(type)!;
+        return `
+          <div class="rs-group">
+            <div class="rs-group-header">${type}</div>
+            <table class="rs-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Busy</th>
+                  <th>Op</th>
+                  <th>Vj</th>
+                  <th>Vk</th>
+                  <th>Qj</th>
+                  <th>Qk</th>
+                  <th>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${entries.map(({ id, rs }) => `
+                  <tr class="${rs.busy ? 'rs-busy' : 'rs-empty'} ${this.getRSStateClass(rs.state)}">
+                    <td>${id}</td>
+                    <td>${rs.busy ? 'Yes' : '-'}</td>
+                    <td>${rs.busy ? rs.op : '-'}</td>
+                    <td>${rs.busy ? (rs.Vj !== null ? rs.Vj : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Vk !== null ? rs.Vk : '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Qj ?? '-') : '-'}</td>
+                    <td>${rs.busy ? (rs.Qk ?? '-') : '-'}</td>
+                    <td>${rs.busy ? rs.state : '-'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }).join('');
+  }
+
+  private getRSStateClass(state: RSState): string {
+    switch (state) {
+      case RSState.WAITING: return 'rs-waiting';
+      case RSState.READY: return 'rs-ready';
+      case RSState.EXECUTING: return 'rs-executing';
+      case RSState.DONE: return 'rs-done';
+      default: return '';
+    }
+  }
+
+  private updateRAT(): void {
+    const state = this.simulator.getState();
+    if (!state?.tomasulo) {
+      this.ratDisplayDiv.innerHTML = '<div class="no-data">No RAT data</div>';
+      return;
+    }
+
+    const rat = state.tomasulo.rat;
+    
+    // Only show registers that have a tag (renamed)
+    const renamedRegs: Array<{ reg: number; tag: string }> = [];
+    for (const [reg, status] of rat) {
+      if (status.tag !== null && reg !== 0) {
+        renamedRegs.push({ reg, tag: status.tag });
+      }
+    }
+
+    if (renamedRegs.length === 0) {
+      this.ratDisplayDiv.innerHTML = `
+        <div class="rat-info">All registers are ready (no pending renames)</div>
+      `;
+      return;
+    }
+
+    this.ratDisplayDiv.innerHTML = `
+      <div class="rat-grid">
+        ${renamedRegs.map(({ reg, tag }) => `
+          <div class="rat-entry">
+            <span class="rat-reg">x${reg}</span>
+            <span class="rat-arrow">→</span>
+            <span class="rat-tag">${tag}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  private updateTomasuloEventLog(): void {
+    const state = this.simulator.getState();
+    if (!state?.tomasulo) {
+      this.eventLogDiv.innerHTML = '<div class="no-events">No events</div>';
+      return;
+    }
+
+    const events = state.tomasulo.events;
+    const currentCycle = state.architectural.cycle;
+    
+    // Show only events from the current cycle (latest cycle just completed)
+    const currentCycleEvents = events.filter(e => e.cycle === currentCycle - 1);
+    
+    if (currentCycleEvents.length === 0) {
+      this.eventLogDiv.innerHTML = '<div class="no-events">No events this cycle</div>';
+      return;
+    }
+
+    this.eventLogDiv.innerHTML = currentCycleEvents
+      .map(e => `
+        <div class="event-entry event-${this.getTomasuloEventClass(e.type)}">
+          <span class="event-type">${e.type}</span>
+          <span class="event-msg">${e.message}</span>
+        </div>
+      `)
+      .join('');
+  }
+
+  private getTomasuloEventClass(type: TomasuloEventType): string {
+    switch (type) {
+      case TomasuloEventType.ISSUE: return 'issue';
+      case TomasuloEventType.ISSUE_STALL: return 'stall';
+      case TomasuloEventType.EXEC_START:
+      case TomasuloEventType.EXEC_CONTINUE:
+      case TomasuloEventType.EXEC_END: return 'execute';
+      case TomasuloEventType.CDB_BROADCAST: return 'broadcast';
+      case TomasuloEventType.CDB_CONTENTION: return 'contention';
+      case TomasuloEventType.OPERAND_WAKEUP: return 'wakeup';
+      case TomasuloEventType.RAT_UPDATE:
+      case TomasuloEventType.ARF_WRITE: return 'writeback';
+      case TomasuloEventType.MEM_READ:
+      case TomasuloEventType.MEM_WRITE: return 'memory';
+      case TomasuloEventType.ERROR: return 'error';
+      default: return 'default';
+    }
+  }
+
+  // ========== End Tomasulo-specific UI Methods ==========
 
   private clearUI(): void {
     this.registersDiv.innerHTML = '<div class="stage-empty">No program loaded</div>';
     this.pipelineStagesDiv.innerHTML = '<div class="stage-empty">No program loaded</div>';
-    this.statInstructions.textContent = '0';
-    this.statCycles.textContent = '0';
-    this.statIPC.textContent = '0.00';
+    this.pipelineRegistersDiv.innerHTML = '';
+    this.eventLogDiv.innerHTML = '';
+    this.memoryDiv.innerHTML = '';
+    this.statsDiv.innerHTML = '';
+    this.cycleDisplay.textContent = '0';
+    this.pcDisplay.textContent = '0x0';
+    
+    // Clear Tomasulo UI elements
+    if (this.cdbStatusDiv) this.cdbStatusDiv.innerHTML = '';
+    if (this.instructionStatusDiv) this.instructionStatusDiv.innerHTML = '';
+    if (this.rsDisplayDiv) this.rsDisplayDiv.innerHTML = '';
+    if (this.ratDisplayDiv) this.ratDisplayDiv.innerHTML = '';
   }
 
   private setStatus(message: string, type: 'success' | 'error' | 'running' | 'info'): void {
