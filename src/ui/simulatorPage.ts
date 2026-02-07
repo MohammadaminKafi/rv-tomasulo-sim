@@ -64,7 +64,7 @@ export class SimulatorPage {
   private specEventLogDiv!: HTMLElement;
   private nonSpecEventLogSection!: HTMLElement;
 
-  constructor(router: Router) {
+  constructor(_router: Router) {
     this.simulator = new Simulator();
     this.codeEditor = null;
     this.isRunning = false;
