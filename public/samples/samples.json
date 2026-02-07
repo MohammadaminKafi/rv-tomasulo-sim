@@ -1,0 +1,94 @@
+{
+  "samples": [
+    {
+      "id": "simple-add",
+      "title": "Simple Addition",
+      "description": "Basic arithmetic operations demonstrating register usage.",
+      "codePath": "samples/simple-add.asm"
+    },
+    {
+      "id": "forwarding-demo",
+      "title": "Forwarding Demo",
+      "description": "Shows data forwarding from EX/MEM and MEM/WB stages.",
+      "codePath": "samples/forwarding-demo.asm"
+    },
+    {
+      "id": "load-use-stall",
+      "title": "Load-Use Hazard (Stall)",
+      "description": "Shows a load-use hazard that causes a pipeline stall.",
+      "codePath": "samples/load-use-stall.asm"
+    },
+    {
+      "id": "multicycle-stall",
+      "title": "Multi-Cycle EX (MUL/DIV)",
+      "description": "Shows multi-cycle EX with MUL (4 cycles) causing structural stall.",
+      "codePath": "samples/multicycle-stall.asm"
+    },
+    {
+      "id": "branch-flush",
+      "title": "Branch Flush Demo",
+      "description": "Shows pipeline flush when branch is taken.",
+      "codePath": "samples/branch-flush.asm"
+    },
+    {
+      "id": "loop",
+      "title": "Simple Loop",
+      "description": "A counting loop demonstrating branches and labels.",
+      "codePath": "samples/loop.asm"
+    },
+    {
+      "id": "memory",
+      "title": "Memory Operations",
+      "description": "Store and load values from memory.",
+      "codePath": "samples/memory.asm"
+    },
+    {
+      "id": "immediate-ops",
+      "title": "Immediate Operations",
+      "description": "All immediate ALU operations: ADDI, SUBI, MULI, DIVI.",
+      "codePath": "samples/immediate-ops.asm"
+    },
+    {
+      "id": "fibonacci",
+      "title": "Fibonacci Sequence",
+      "description": "Calculate first few Fibonacci numbers.",
+      "codePath": "samples/fibonacci.asm"
+    },
+    {
+      "id": "logical",
+      "title": "Logical Operations",
+      "description": "Bitwise AND, OR, and XOR operations.",
+      "codePath": "samples/logical.asm"
+    },
+    {
+      "id": "tomasulo-raw-chain",
+      "title": "RAW Dependency Chain (Tomasulo)",
+      "description": "Demonstrates register renaming and operand waiting via CDB in Tomasulo mode.",
+      "codePath": "samples/tomasulo-raw-chain.asm"
+    },
+    {
+      "id": "tomasulo-cdb-contention",
+      "title": "CDB Contention (Tomasulo)",
+      "description": "Multiple instructions complete at similar times, causing CDB arbitration.",
+      "codePath": "samples/tomasulo-cdb-contention.asm"
+    },
+    {
+      "id": "tomasulo-out-of-order",
+      "title": "Out-of-Order Execution (Tomasulo)",
+      "description": "Shows how independent instructions can execute out of program order.",
+      "codePath": "samples/tomasulo-out-of-order.asm"
+    },
+    {
+      "id": "tomasulo-register-renaming",
+      "title": "Register Renaming (Tomasulo)",
+      "description": "Shows how RAT eliminates false dependencies (WAW, WAR).",
+      "codePath": "samples/tomasulo-register-renaming.asm"
+    },
+    {
+      "id": "tomasulo-load-store",
+      "title": "Load/Store Operations (Tomasulo)",
+      "description": "Memory operations with address calculation and data dependencies.",
+      "codePath": "samples/tomasulo-load-store.asm"
+    }
+  ]
+}

@@ -3,10 +3,11 @@
  */
 
 import { Router } from './router';
-import { samplePrograms } from '../data/samples';
+import { loadSamplePrograms, type SampleProgram } from '../data/samples';
 
 export class DocsPage {
   private router: Router;
+  private samples: SampleProgram[] = [];
 
   constructor(router: Router) {
     this.router = router;
@@ -32,42 +33,105 @@ export class DocsPage {
           <!-- Execution Modes -->
           <section id="execution-modes" class="docs-section">
             <h2>Execution Modes</h2>
+            <p class="section-intro">
+              The simulator supports three distinct execution modes, each demonstrating 
+              progressively advanced techniques in modern processor design. These modes 
+              allow you to explore different approaches to instruction-level parallelism 
+              and performance optimization.
+            </p>
             
             <div class="mode-card">
-              <h3>Phase 1: 5-Stage Pipeline ✅</h3>
+              <h3>5-Stage Pipeline</h3>
               <p>
-                Classic RISC-V pipeline with five stages: Instruction Fetch (IF),
-                Instruction Decode (ID), Execute (EX), Memory Access (MEM), 
-                and Write Back (WB).
+                The 5-Stage Pipeline mode implements the classic RISC architecture with a traditional 
+                in-order execution model. This foundational approach divides instruction execution 
+                into five distinct stages: Instruction Fetch (IF), Instruction Decode (ID), 
+                Execute (EX), Memory Access (MEM), and Write Back (WB).
               </p>
-              <p><strong>Status:</strong> Fully implemented and available</p>
+              <p>
+                In this mode, instructions flow through the pipeline sequentially, with each stage 
+                completing its work before passing the instruction to the next stage. The simulator 
+                handles data hazards through forwarding mechanisms and implements stall logic when 
+                forwarding alone cannot resolve dependencies. Branch instructions cause pipeline 
+                flushes, providing a clear demonstration of control hazards and their impact on 
+                performance.
+              </p>
+              <p>
+                <strong>Key Features:</strong>
+              </p>
+              <ul>
+                <li>In-order instruction issue and execution</li>
+                <li>Data forwarding to minimize pipeline stalls</li>
+                <li>Automatic hazard detection and stall insertion</li>
+                <li>Branch prediction using simple not-taken strategy</li>
+                <li>Detailed stage-by-stage visualization of instruction flow</li>
+              </ul>
             </div>
 
-            <div class="mode-card mode-upcoming">
-              <h3>Phase 2: Tomasulo Algorithm 🚧</h3>
+            <div class="mode-card">
+              <h3>Tomasulo Algorithm</h3>
               <p>
-                Dynamic scheduling using reservation stations for out-of-order execution.
-                Implements register renaming and the Common Data Bus (CDB).
+                The Tomasulo Algorithm mode represents a significant advancement in processor design, 
+                introducing dynamic instruction scheduling and out-of-order execution. Originally 
+                developed for the IBM System/360 Model 91, this approach uses reservation stations 
+                to eliminate false dependencies and maximize instruction-level parallelism.
               </p>
-              <p><strong>Status:</strong> Coming soon</p>
+              <p>
+                Instead of executing instructions strictly in program order, this mode dynamically 
+                schedules instructions based on operand availability. The algorithm employs register 
+                renaming through reservation station tags, eliminating write-after-write (WAW) and 
+                write-after-read (WAR) hazards while preserving true read-after-write (RAW) dependencies. 
+                The Common Data Bus (CDB) broadcasts results to all waiting instructions simultaneously, 
+                enabling multiple instructions to become ready for execution in parallel.
+              </p>
+              <p>
+                <strong>Key Features:</strong>
+              </p>
+              <ul>
+                <li>Out-of-order execution with dynamic instruction scheduling</li>
+                <li>Multiple reservation stations organized by functional unit type</li>
+                <li>Implicit register renaming via reservation station tags</li>
+                <li>Common Data Bus (CDB) for result broadcasting and operand wakeup</li>
+                <li>Support for variable execution latencies across different instruction types</li>
+                <li>Real-time visualization of reservation station states and data dependencies</li>
+              </ul>
             </div>
 
-            <div class="mode-card mode-upcoming">
-              <h3>Phase 3: Tomasulo with Speculation 🚧</h3>
+            <div class="mode-card">
+              <h3>Tomasulo with Speculation</h3>
               <p>
-                Extends Tomasulo with speculative execution using a reorder buffer (ROB).
-                Handles branch mispredictions and maintains precise exceptions.
+                The Tomasulo with Speculation mode extends the base Tomasulo algorithm with hardware 
+                speculation, representing modern superscalar processor design. This mode introduces 
+                a Reorder Buffer (ROB) that enables the processor to execute instructions speculatively 
+                beyond branch points while maintaining precise exception handling and architectural state.
               </p>
-              <p><strong>Status:</strong> Planned</p>
-            </div>
-
-            <div class="mode-card mode-upcoming">
-              <h3>Phase 4: Branch Prediction 🚧</h3>
               <p>
-                Adds branch prediction mechanisms including branch prediction tables
-                and branch target buffers for improved performance.
+                Speculation allows the processor to continue executing instructions past unresolved 
+                branches using branch prediction. If the prediction is correct, the speculatively 
+                executed instructions commit in program order from the ROB to the architectural 
+                register file, providing significant performance improvements. When a branch 
+                misprediction occurs, the processor precisely recovers by squashing all speculative 
+                instructions from the ROB and resuming execution from the correct path.
               </p>
-              <p><strong>Status:</strong> Planned</p>
+              <p>
+                The ROB maintains strict program order for instruction commitment, ensuring that 
+                exceptions are precise and that the architectural state remains consistent even 
+                when execution occurs out of order. This separation between execution and commitment 
+                is fundamental to modern high-performance processors.
+              </p>
+              <p>
+                <strong>Key Features:</strong>
+              </p>
+              <ul>
+                <li>Hardware speculation with branch prediction (not-taken policy)</li>
+                <li>Reorder Buffer (ROB) for maintaining precise architectural state</li>
+                <li>Speculative execution beyond unresolved branches</li>
+                <li>Precise exception handling and misprediction recovery</li>
+                <li>In-order instruction commitment despite out-of-order execution</li>
+                <li>Register renaming through ROB entries</li>
+                <li>Comprehensive tracking of speculative instructions and their dependencies</li>
+                <li>Visualization of branch prediction accuracy and squashed instructions</li>
+              </ul>
             </div>
           </section>
 
@@ -251,9 +315,26 @@ ADDI x2, x0, 0xFF    # Hexadecimal</code></pre>
       </div>
     `;
 
-    this.renderSamples();
-    this.setupEventListeners();
+    // Load samples and render them
+    this.loadAndRenderSamples();
     this.setupSidebarNavigation();
+  }
+
+  private async loadAndRenderSamples(): Promise<void> {
+    try {
+      console.log('DocsPage: Loading sample programs...');
+      this.samples = await loadSamplePrograms();
+      console.log('DocsPage: Loaded', this.samples.length, 'samples');
+      this.renderSamples();
+      this.setupEventListeners();
+    } catch (error) {
+      console.error('DocsPage: Error loading samples:', error);
+      // Show error in the container
+      const container = document.getElementById('samples-container');
+      if (container) {
+        container.innerHTML = '<div class="error">Failed to load sample programs. Check console for details.</div>';
+      }
+    }
   }
 
   private setupSidebarNavigation(): void {
@@ -302,9 +383,19 @@ ADDI x2, x0, 0xFF    # Hexadecimal</code></pre>
 
   private renderSamples(): void {
     const container = document.getElementById('samples-container');
-    if (!container) return;
+    if (!container) {
+      console.warn('samples-container not found in DOM');
+      return;
+    }
 
-    container.innerHTML = samplePrograms.map((sample, index) => `
+    console.log('renderSamples: Rendering', this.samples.length, 'samples');
+    if (this.samples.length === 0) {
+      console.warn('No samples to render - showing loading message');
+      container.innerHTML = '<div class="loading">Loading samples...</div>';
+      return;
+    }
+
+    container.innerHTML = this.samples.map((sample, index) => `
       <div class="sample-card-enhanced">
         <div class="sample-header">
           <div class="sample-number">${String(index + 1).padStart(2, '0')}</div>
@@ -361,7 +452,7 @@ ADDI x2, x0, 0xFF    # Hexadecimal</code></pre>
     tryButtons.forEach(button => {
       button.addEventListener('click', (e) => {
         const sampleId = (e.currentTarget as HTMLElement).getAttribute('data-sample-id');
-        const sample = samplePrograms.find(s => s.id === sampleId);
+        const sample = this.samples.find(s => s.id === sampleId);
         
         if (sample) {
           localStorage.setItem('assemblyCode', sample.code);
