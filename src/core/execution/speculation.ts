@@ -27,12 +27,14 @@ import {
   RSType,
   getRSTypeForInstruction,
   getROBEntryType,
-  getSpeculationLatency,
+  getRuntimeLatency,
   instructionWritesRegister,
   isBranchOrJump,
   WORD_SIZE,
   DEFAULT_SPECULATION_CONFIG,
   SpeculationCDBBroadcast,
+  RuntimeConfig,
+  DEFAULT_RUNTIME_CONFIG,
 } from '../types';
 import {
   readRegister,
@@ -48,9 +50,11 @@ import {
  */
 export class SpeculationExecutionModel implements ExecutionModel {
   private config: SpeculationConfig;
+  private runtimeConfig: RuntimeConfig;
 
-  constructor(config?: Partial<SpeculationConfig>) {
+  constructor(config?: Partial<SpeculationConfig>, runtimeConfig?: RuntimeConfig) {
     this.config = { ...DEFAULT_SPECULATION_CONFIG, ...config };
+    this.runtimeConfig = runtimeConfig || DEFAULT_RUNTIME_CONFIG;
   }
 
   /**
@@ -580,10 +584,12 @@ export class SpeculationExecutionModel implements ExecutionModel {
         toStart.execStartCycle = cycle;
 
         // Set remaining cycles based on operation
-        if (toStart.rsType === RSType.LOAD || toStart.rsType === RSType.STORE) {
-          toStart.remainingCycles = 1; // Memory access after address calc
+        if (toStart.rsType === RSType.LOAD) {
+          toStart.remainingCycles = this.runtimeConfig.memoryDelays.read; // Memory read delay
+        } else if (toStart.rsType === RSType.STORE) {
+          toStart.remainingCycles = this.runtimeConfig.memoryDelays.write; // Memory write delay
         } else {
-          toStart.remainingCycles = getSpeculationLatency(toStart.op!, spec.config);
+          toStart.remainingCycles = getRuntimeLatency(toStart.op!, this.runtimeConfig);
         }
 
         // Update ROB state

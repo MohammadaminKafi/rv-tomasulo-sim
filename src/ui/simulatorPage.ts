@@ -16,6 +16,8 @@ import {
   ROBState,
   ROBEntry,
   SpeculationRS,
+  RuntimeConfig,
+  DEFAULT_RUNTIME_CONFIG,
 } from '../core/types';
 
 export class SimulatorPage {
@@ -24,6 +26,9 @@ export class SimulatorPage {
   private isRunning: boolean;
   private runInterval: number | null;
   private runSpeed: number = 200; // ms between steps
+  private runtimeConfig: RuntimeConfig;
+  private registersDisplayHex: boolean = false; // false = decimal, true = hex
+  private memoryDisplayHex: boolean = false; // false = decimal, true = hex
 
   // UI Elements
   private loadProgramBtn!: HTMLButtonElement;
@@ -33,7 +38,6 @@ export class SimulatorPage {
   private runNCyclesBtn!: HTMLButtonElement;
   private runToEndBtn!: HTMLButtonElement;
   private modeSelect!: HTMLSelectElement;
-  private speedSlider!: HTMLInputElement;
   private statusText!: HTMLElement;
   private registersDiv!: HTMLElement;
   private pipelineStagesDiv!: HTMLElement;
@@ -64,11 +68,17 @@ export class SimulatorPage {
   private specEventLogDiv!: HTMLElement;
   private nonSpecEventLogSection!: HTMLElement;
 
+  // Settings modal elements
+  private settingsModal!: HTMLElement;
+  private settingsBtn!: HTMLButtonElement;
+
   constructor(_router: Router) {
     this.simulator = new Simulator();
     this.codeEditor = null;
     this.isRunning = false;
     this.runInterval = null;
+    this.runtimeConfig = { ...DEFAULT_RUNTIME_CONFIG };
+    this.runSpeed = this.runtimeConfig.runSpeed;
   }
 
   render(container: HTMLElement): void {
@@ -96,12 +106,7 @@ export class SimulatorPage {
                 <button id="run-btn" class="btn">Run</button>
                 <button id="run-n-cycles-btn" class="btn">Run 10 Cycles</button>
                 <button id="run-to-end-btn" class="btn">Run to End</button>
-              </div>
-
-              <div class="speed-control">
-                <label for="speed-slider">Speed:</label>
-                <input type="range" id="speed-slider" min="10" max="500" value="200" />
-                <span id="speed-display">200ms</span>
+                <button id="settings-btn" class="btn btn-settings">Settings</button>
               </div>
 
               <div class="mode-selection">
@@ -217,6 +222,12 @@ export class SimulatorPage {
             <div class="panel">
               <div class="panel-header">
                 <h2>Registers (x0-x31)</h2>
+                <button id="toggle-registers-display" class="btn-icon-toggle" title="Toggle Hex/Dec">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8z"/>
+                    <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
+                  </svg>
+                </button>
               </div>
               <div id="registers" class="registers-grid-new"></div>
             </div>
@@ -224,6 +235,12 @@ export class SimulatorPage {
             <div class="panel">
               <div class="panel-header">
                 <h2>Memory</h2>
+                <button id="toggle-memory-display" class="btn-icon-toggle" title="Toggle Hex/Dec">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8z"/>
+                    <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
+                  </svg>
+                </button>
               </div>
               <div id="memory-view" class="memory-view"></div>
             </div>
@@ -248,6 +265,85 @@ export class SimulatorPage {
             <div id="modal-event-list" class="modal-body"></div>
           </div>
         </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+          <div class="modal-backdrop"></div>
+          <div class="modal-content settings-modal-content">
+            <div class="modal-header">
+              <h2>Simulator Settings</h2>
+              <button id="settings-modal-close-btn" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body settings-body">
+              <div class="settings-section">
+                <h3>Run Speed</h3>
+                <div class="settings-row">
+                  <label for="settings-run-speed">Step Delay (ms):</label>
+                  <input type="range" id="settings-run-speed" min="100" max="1000" step="50" value="200" />
+                  <span id="settings-run-speed-display">200ms</span>
+                </div>
+              </div>
+              
+              <div class="settings-section">
+                <h3>Execution Latencies (cycles)</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label for="settings-latency-add">ADD/ADDI:</label>
+                    <input type="number" id="settings-latency-add" min="1" max="20" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-sub">SUB/SUBI:</label>
+                    <input type="number" id="settings-latency-sub" min="1" max="20" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-mul">MUL/MULI:</label>
+                    <input type="number" id="settings-latency-mul" min="1" max="20" value="4" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-div">DIV/DIVI:</label>
+                    <input type="number" id="settings-latency-div" min="1" max="50" value="6" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-logical">AND/OR/XOR:</label>
+                    <input type="number" id="settings-latency-logical" min="1" max="10" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-load">LD (exec):</label>
+                    <input type="number" id="settings-latency-load" min="1" max="10" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-store">ST (exec):</label>
+                    <input type="number" id="settings-latency-store" min="1" max="10" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-latency-branch">Branch/Jump:</label>
+                    <input type="number" id="settings-latency-branch" min="1" max="10" value="1" />
+                  </div>
+                </div>
+              </div>
+              
+              <div class="settings-section">
+                <h3>Memory Access Delays (cycles)</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label for="settings-mem-read">Memory Read:</label>
+                    <input type="number" id="settings-mem-read" min="1" max="50" value="1" />
+                  </div>
+                  <div class="settings-row">
+                    <label for="settings-mem-write">Memory Write:</label>
+                    <input type="number" id="settings-mem-write" min="1" max="50" value="1" />
+                  </div>
+                </div>
+              </div>
+              
+              <div class="settings-actions">
+                <button id="settings-apply-btn" class="btn btn-primary">Apply & Reload</button>
+                <button id="settings-cancel-btn" class="btn">Cancel</button>
+                <button id="settings-reset-btn" class="btn">Reset to Defaults</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
 
@@ -259,7 +355,8 @@ export class SimulatorPage {
     this.runNCyclesBtn = document.getElementById('run-n-cycles-btn') as HTMLButtonElement;
     this.runToEndBtn = document.getElementById('run-to-end-btn') as HTMLButtonElement;
     this.modeSelect = document.getElementById('mode-select') as HTMLSelectElement;
-    this.speedSlider = document.getElementById('speed-slider') as HTMLInputElement;
+    this.settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
+    this.settingsModal = document.getElementById('settings-modal') as HTMLElement;
     this.statusText = document.getElementById('status-text') as HTMLElement;
     this.registersDiv = document.getElementById('registers') as HTMLElement;
     this.pipelineStagesDiv = document.getElementById('pipeline-stages') as HTMLElement;
@@ -309,21 +406,130 @@ export class SimulatorPage {
     this.runNCyclesBtn.addEventListener('click', () => this.runNCycles(10));
     this.runToEndBtn.addEventListener('click', () => this.runToEnd());
     this.modeSelect.addEventListener('change', () => this.changeMode());
-    this.speedSlider.addEventListener('input', () => {
-      this.runSpeed = parseInt(this.speedSlider.value);
-      const display = document.getElementById('speed-display');
-      if (display) display.textContent = `${this.runSpeed}ms`;
-    });
+    
+    // Settings modal
+    this.settingsBtn.addEventListener('click', () => this.showSettingsModal());
+    this.setupSettingsModalListeners();
+
+    // Registers display toggle
+    const toggleRegistersBtn = document.getElementById('toggle-registers-display');
+    toggleRegistersBtn?.addEventListener('click', () => this.toggleRegistersDisplay());
+
+    // Memory display toggle
+    const toggleMemoryBtn = document.getElementById('toggle-memory-display');
+    toggleMemoryBtn?.addEventListener('click', () => this.toggleMemoryDisplay());
 
     // Event log modal
     this.eventLogDiv.addEventListener('click', () => this.showEventLogModal());
+    this.specEventLogDiv.addEventListener('click', () => this.showEventLogModal());
     
     const modalCloseBtn = document.getElementById('modal-close-btn');
-    const modalBackdrop = document.querySelector('.modal-backdrop');
+    const modalBackdrop = document.querySelector('#event-log-modal .modal-backdrop');
     const modal = document.getElementById('event-log-modal');
     
     modalCloseBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
     modalBackdrop?.addEventListener('click', () => modal?.classList.add('hidden'));
+  }
+
+  private setupSettingsModalListeners(): void {
+    const closeBtn = document.getElementById('settings-modal-close-btn');
+    const backdrop = document.querySelector('#settings-modal .modal-backdrop');
+    const applyBtn = document.getElementById('settings-apply-btn');
+    const cancelBtn = document.getElementById('settings-cancel-btn');
+    const resetBtn = document.getElementById('settings-reset-btn');
+    const runSpeedSlider = document.getElementById('settings-run-speed') as HTMLInputElement;
+    const runSpeedDisplay = document.getElementById('settings-run-speed-display');
+    
+    closeBtn?.addEventListener('click', () => this.hideSettingsModal());
+    backdrop?.addEventListener('click', () => this.hideSettingsModal());
+    cancelBtn?.addEventListener('click', () => this.hideSettingsModal());
+    applyBtn?.addEventListener('click', () => this.applySettings());
+    resetBtn?.addEventListener('click', () => this.resetSettingsToDefaults());
+    
+    runSpeedSlider?.addEventListener('input', () => {
+      if (runSpeedDisplay) {
+        runSpeedDisplay.textContent = `${runSpeedSlider.value}ms`;
+      }
+    });
+  }
+
+  private showSettingsModal(): void {
+    // Populate current values
+    this.populateSettingsModal();
+    this.settingsModal.classList.remove('hidden');
+  }
+
+  private hideSettingsModal(): void {
+    this.settingsModal.classList.add('hidden');
+  }
+
+  private populateSettingsModal(): void {
+    // Run speed
+    const runSpeedSlider = document.getElementById('settings-run-speed') as HTMLInputElement;
+    const runSpeedDisplay = document.getElementById('settings-run-speed-display');
+    if (runSpeedSlider) {
+      runSpeedSlider.value = String(this.runtimeConfig.runSpeed);
+    }
+    if (runSpeedDisplay) {
+      runSpeedDisplay.textContent = `${this.runtimeConfig.runSpeed}ms`;
+    }
+    
+    // Execution latencies
+    const latencies = this.runtimeConfig.executionLatencies;
+    (document.getElementById('settings-latency-add') as HTMLInputElement).value = String(latencies.add);
+    (document.getElementById('settings-latency-sub') as HTMLInputElement).value = String(latencies.sub);
+    (document.getElementById('settings-latency-mul') as HTMLInputElement).value = String(latencies.mul);
+    (document.getElementById('settings-latency-div') as HTMLInputElement).value = String(latencies.div);
+    (document.getElementById('settings-latency-logical') as HTMLInputElement).value = String(latencies.logical);
+    (document.getElementById('settings-latency-load') as HTMLInputElement).value = String(latencies.load);
+    (document.getElementById('settings-latency-store') as HTMLInputElement).value = String(latencies.store);
+    (document.getElementById('settings-latency-branch') as HTMLInputElement).value = String(latencies.branch);
+    
+    // Memory delays
+    const memDelays = this.runtimeConfig.memoryDelays;
+    (document.getElementById('settings-mem-read') as HTMLInputElement).value = String(memDelays.read);
+    (document.getElementById('settings-mem-write') as HTMLInputElement).value = String(memDelays.write);
+  }
+
+  private applySettings(): void {
+    // Read values from inputs
+    this.runtimeConfig = {
+      executionLatencies: {
+        add: parseInt((document.getElementById('settings-latency-add') as HTMLInputElement).value) || 1,
+        sub: parseInt((document.getElementById('settings-latency-sub') as HTMLInputElement).value) || 1,
+        mul: parseInt((document.getElementById('settings-latency-mul') as HTMLInputElement).value) || 4,
+        div: parseInt((document.getElementById('settings-latency-div') as HTMLInputElement).value) || 6,
+        logical: parseInt((document.getElementById('settings-latency-logical') as HTMLInputElement).value) || 1,
+        load: parseInt((document.getElementById('settings-latency-load') as HTMLInputElement).value) || 1,
+        store: parseInt((document.getElementById('settings-latency-store') as HTMLInputElement).value) || 1,
+        branch: parseInt((document.getElementById('settings-latency-branch') as HTMLInputElement).value) || 1,
+      },
+      memoryDelays: {
+        read: parseInt((document.getElementById('settings-mem-read') as HTMLInputElement).value) || 1,
+        write: parseInt((document.getElementById('settings-mem-write') as HTMLInputElement).value) || 1,
+      },
+      runSpeed: parseInt((document.getElementById('settings-run-speed') as HTMLInputElement).value) || 200,
+    };
+    
+    // Update run speed
+    this.runSpeed = this.runtimeConfig.runSpeed;
+    
+    // Update simulator config and reload
+    this.simulator.setConfig({
+      runtimeConfig: this.runtimeConfig,
+    });
+    
+    // Reload the program with new settings
+    const code = this.codeEditor?.getValue() || '';
+    this.loadProgram(code);
+    
+    this.hideSettingsModal();
+    this.setStatus('Settings applied', 'success');
+  }
+
+  private resetSettingsToDefaults(): void {
+    this.runtimeConfig = { ...DEFAULT_RUNTIME_CONFIG };
+    this.populateSettingsModal();
   }
 
   private showEventLogModal(): void {
@@ -333,34 +539,101 @@ export class SimulatorPage {
     
     if (!modal || !eventList) return;
     
-    if (!state?.pipeline || state.pipeline.events.length === 0) {
-      eventList.innerHTML = '<div class="no-events">No events recorded</div>';
-    } else {
-      // Group events by cycle
-      const eventsByCycle = new Map<number, PipelineEvent[]>();
-      for (const event of state.pipeline.events) {
-        if (!eventsByCycle.has(event.cycle)) {
-          eventsByCycle.set(event.cycle, []);
+    // Determine which mode we're in and get the appropriate events
+    let eventsHTML = '';
+    
+    if (state?.mode === ExecutionMode.PIPELINE && state.pipeline) {
+      const events = state.pipeline.events;
+      if (events.length === 0) {
+        eventsHTML = '<div class="no-events">No events recorded</div>';
+      } else {
+        // Group events by cycle
+        const eventsByCycle = new Map<number, PipelineEvent[]>();
+        for (const event of events) {
+          if (!eventsByCycle.has(event.cycle)) {
+            eventsByCycle.set(event.cycle, []);
+          }
+          eventsByCycle.get(event.cycle)!.push(event);
         }
-        eventsByCycle.get(event.cycle)!.push(event);
+        
+        // Sort cycles in descending order (newest first)
+        const sortedCycles = Array.from(eventsByCycle.keys()).sort((a, b) => b - a);
+        
+        eventsHTML = sortedCycles.map(cycle => `
+          <div class="modal-cycle-group">
+            <div class="modal-cycle-header">Cycle ${cycle}</div>
+            ${eventsByCycle.get(cycle)!.map(e => `
+              <div class="event-entry event-${this.getEventClass(e.type)}">
+                <span class="event-type">${e.type}</span>
+                <span class="event-msg">${e.message}</span>
+              </div>
+            `).join('')}
+          </div>
+        `).join('');
       }
-      
-      // Sort cycles in descending order (newest first)
-      const sortedCycles = Array.from(eventsByCycle.keys()).sort((a, b) => b - a);
-      
-      eventList.innerHTML = sortedCycles.map(cycle => `
-        <div class="modal-cycle-group">
-          <div class="modal-cycle-header">Cycle ${cycle}</div>
-          ${eventsByCycle.get(cycle)!.map(e => `
-            <div class="event-entry event-${this.getEventClass(e.type)}">
-              <span class="event-type">${e.type}</span>
-              <span class="event-msg">${e.message}</span>
-            </div>
-          `).join('')}
-        </div>
-      `).join('');
+    } else if (state?.mode === ExecutionMode.TOMASULO && state.tomasulo) {
+      const events = state.tomasulo.events;
+      if (events.length === 0) {
+        eventsHTML = '<div class="no-events">No events recorded</div>';
+      } else {
+        // Group events by cycle
+        const eventsByCycle = new Map<number, typeof events>;
+        for (const event of events) {
+          if (!eventsByCycle.has(event.cycle)) {
+            eventsByCycle.set(event.cycle, []);
+          }
+          eventsByCycle.get(event.cycle)!.push(event);
+        }
+        
+        // Sort cycles in descending order (newest first)
+        const sortedCycles = Array.from(eventsByCycle.keys()).sort((a, b) => b - a);
+        
+        eventsHTML = sortedCycles.map(cycle => `
+          <div class="modal-cycle-group">
+            <div class="modal-cycle-header">Cycle ${cycle}</div>
+            ${eventsByCycle.get(cycle)!.map(e => `
+              <div class="event-entry event-${this.getTomasuloEventClass(e.type)}">
+                <span class="event-type">${e.type}</span>
+                <span class="event-msg">${e.message}</span>
+              </div>
+            `).join('')}
+          </div>
+        `).join('');
+      }
+    } else if (state?.mode === ExecutionMode.TOMASULO_SPECULATION && state.speculation) {
+      const events = state.speculation.events;
+      if (events.length === 0) {
+        eventsHTML = '<div class="no-events">No events recorded</div>';
+      } else {
+        // Group events by cycle
+        const eventsByCycle = new Map<number, typeof events>();
+        for (const event of events) {
+          if (!eventsByCycle.has(event.cycle)) {
+            eventsByCycle.set(event.cycle, []);
+          }
+          eventsByCycle.get(event.cycle)!.push(event);
+        }
+        
+        // Sort cycles in descending order (newest first)
+        const sortedCycles = Array.from(eventsByCycle.keys()).sort((a, b) => b - a);
+        
+        eventsHTML = sortedCycles.map(cycle => `
+          <div class="modal-cycle-group">
+            <div class="modal-cycle-header">Cycle ${cycle}</div>
+            ${eventsByCycle.get(cycle)!.map(e => `
+              <div class="event-entry event-${this.getSpeculationEventClass(e.type)}">
+                <span class="event-type">${e.type}</span>
+                <span class="event-msg">${e.message}</span>
+              </div>
+            `).join('')}
+          </div>
+        `).join('');
+      }
+    } else {
+      eventsHTML = '<div class="no-events">No events recorded</div>';
     }
     
+    eventList.innerHTML = eventsHTML;
     modal.classList.remove('hidden');
   }
 
@@ -600,11 +873,23 @@ export class SimulatorPage {
       regDiv.className = 'register-cell';
       
       const value = registers[i];
-      const hexValue = (value >>> 0).toString(16).toUpperCase().padStart(8, '0');
+      const hexValue = (value >>> 0).toString(16).toUpperCase();
+      
+      // Display based on mode
+      let displayValue: string;
+      let titleValue: string;
+      
+      if (this.registersDisplayHex) {
+        displayValue = `0x${hexValue}`;
+        titleValue = `Decimal: ${value}`;
+      } else {
+        displayValue = value.toString();
+        titleValue = `Hex: 0x${hexValue}`;
+      }
       
       regDiv.innerHTML = `
         <span class="reg-name">x${i}</span>
-        <span class="reg-value" title="0x${hexValue}">${value}</span>
+        <span class="reg-value" title="${titleValue}">${displayValue}</span>
       `;
       
       if (i !== 0 && value !== 0) {
@@ -812,12 +1097,34 @@ export class SimulatorPage {
         <span>Value</span>
       </div>
       <div class="memory-grid">
-        ${entries.map(([addr, val]) => `
-          <div class="memory-cell">
-            <span class="mem-addr">0x${addr.toString(16).toUpperCase().padStart(4, '0')}</span>
-            <span class="mem-val">${val} (0x${(val >>> 0).toString(16).toUpperCase()})</span>
-          </div>
-        `).join('')}
+        ${entries.map(([addr, val]) => {
+          const hexAddr = addr.toString(16).toUpperCase();
+          const hexVal = (val >>> 0).toString(16).toUpperCase();
+          
+          let displayAddr: string;
+          let displayVal: string;
+          let titleAddr: string;
+          let titleVal: string;
+          
+          if (this.memoryDisplayHex) {
+            displayAddr = `0x${hexAddr}`;
+            displayVal = `0x${hexVal}`;
+            titleAddr = `Decimal: ${addr}`;
+            titleVal = `Decimal: ${val}`;
+          } else {
+            displayAddr = addr.toString();
+            displayVal = val.toString();
+            titleAddr = `Hex: 0x${hexAddr}`;
+            titleVal = `Hex: 0x${hexVal}`;
+          }
+          
+          return `
+            <div class="memory-cell">
+              <span class="mem-addr" title="${titleAddr}">${displayAddr}</span>
+              <span class="mem-val" title="${titleVal}">${displayVal}</span>
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
   }
@@ -1471,6 +1778,19 @@ export class SimulatorPage {
     
     this.statusText.classList.remove('status-success', 'status-error', 'status-running', 'status-info');
     this.statusText.classList.add(`status-${type}`);
+  }
+
+  private toggleRegistersDisplay(): void {
+    this.registersDisplayHex = !this.registersDisplayHex;
+    const state = this.simulator.getState();
+    if (state) {
+      this.updateRegisters(state.architectural.registers.registers);
+    }
+  }
+
+  private toggleMemoryDisplay(): void {
+    this.memoryDisplayHex = !this.memoryDisplayHex;
+    this.updateMemoryView();
   }
 
   private getDefaultCode(): string {

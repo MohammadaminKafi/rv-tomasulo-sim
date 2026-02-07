@@ -668,6 +668,9 @@ export interface SimulatorConfig {
   
   // Speculation configuration
   speculationConfig?: SpeculationConfig;
+  
+  // Runtime configuration (user-customizable settings)
+  runtimeConfig?: RuntimeConfig;
 }
 
 // ============================================================================
@@ -932,6 +935,58 @@ export const DEFAULT_SPECULATION_CONFIG: SpeculationConfig = {
   branchLatency: 1,    // BEQ, BNE, J
 };
 
+// ============================================================================
+// Runtime Configuration Types (User-configurable at runtime)
+// ============================================================================
+
+/**
+ * Runtime configuration for user-customizable settings
+ * These settings can be changed before each run and apply to all execution modes
+ */
+export interface RuntimeConfig {
+  // Execution latencies for each instruction type (in cycles)
+  executionLatencies: {
+    add: number;      // ADD, ADDI
+    sub: number;      // SUB, SUBI  
+    mul: number;      // MUL, MULI
+    div: number;      // DIV, DIVI
+    logical: number;  // AND, OR, XOR
+    load: number;     // LD (execution, not memory access)
+    store: number;    // ST (execution, not memory access)
+    branch: number;   // BEQ, BNE, J
+  };
+  
+  // Memory access delays (separate from instruction execution)
+  memoryDelays: {
+    read: number;     // Memory read delay (in cycles)
+    write: number;    // Memory write delay (in cycles)
+  };
+  
+  // UI run speed (in milliseconds between steps)
+  runSpeed: number;   // 100-1000ms
+}
+
+/**
+ * Default runtime configuration
+ */
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+  executionLatencies: {
+    add: 1,
+    sub: 1,
+    mul: 4,
+    div: 6,
+    logical: 1,
+    load: 1,
+    store: 1,
+    branch: 1,
+  },
+  memoryDelays: {
+    read: 1,
+    write: 1,
+  },
+  runSpeed: 200,
+};
+
 /**
  * Default simulator configuration
  */
@@ -942,7 +997,42 @@ export const DEFAULT_CONFIG: SimulatorConfig = {
   },
   tomasuloConfig: DEFAULT_TOMASULO_CONFIG,
   speculationConfig: DEFAULT_SPECULATION_CONFIG,
+  runtimeConfig: DEFAULT_RUNTIME_CONFIG,
 };
+
+/**
+ * Get execution latency for an instruction using runtime config
+ */
+export function getRuntimeLatency(type: InstructionType, config: RuntimeConfig): number {
+  switch (type) {
+    case InstructionType.ADD:
+    case InstructionType.ADDI:
+      return config.executionLatencies.add;
+    case InstructionType.SUB:
+    case InstructionType.SUBI:
+      return config.executionLatencies.sub;
+    case InstructionType.MUL:
+    case InstructionType.MULI:
+      return config.executionLatencies.mul;
+    case InstructionType.DIV:
+    case InstructionType.DIVI:
+      return config.executionLatencies.div;
+    case InstructionType.AND:
+    case InstructionType.OR:
+    case InstructionType.XOR:
+      return config.executionLatencies.logical;
+    case InstructionType.LD:
+      return config.executionLatencies.load;
+    case InstructionType.ST:
+      return config.executionLatencies.store;
+    case InstructionType.BEQ:
+    case InstructionType.BNE:
+    case InstructionType.J:
+      return config.executionLatencies.branch;
+    case InstructionType.NOP:
+      return 1;
+  }
+}
 
 /**
  * Get speculation execution latency for an instruction

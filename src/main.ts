@@ -35,10 +35,6 @@ class App {
     this.appContainer.innerHTML = '';
     this.appContainer.appendChild(header);
     this.appContainer.appendChild(this.mainContent);
-    
-    // Add footer
-    const footer = this.createFooter();
-    this.appContainer.appendChild(footer);
   }
 
   private createHeader(): HTMLElement {
@@ -66,15 +62,6 @@ class App {
     this.updateActiveNav(this.router.getCurrentRoute());
 
     return header;
-  }
-
-  private createFooter(): HTMLElement {
-    const footer = document.createElement('footer');
-    footer.className = 'app-footer';
-    footer.innerHTML = `
-      <p>Educational Computer Architecture Simulator | Built with TypeScript & Vite</p>
-    `;
-    return footer;
   }
 
   private handleRouteChange(route: string): void {

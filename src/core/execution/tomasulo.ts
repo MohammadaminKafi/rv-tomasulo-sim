@@ -22,11 +22,13 @@ import {
   RSState,
   RSType,
   getRSTypeForInstruction,
-  getTomasuloLatency,
+  getRuntimeLatency,
   instructionWritesRegister,
   isBranchOrJump,
   WORD_SIZE,
   DEFAULT_TOMASULO_CONFIG,
+  RuntimeConfig,
+  DEFAULT_RUNTIME_CONFIG,
 } from '../types';
 import {
   readRegister,
@@ -42,9 +44,11 @@ import {
  */
 export class TomasuloExecutionModel implements ExecutionModel {
   private config: TomasuloConfig;
+  private runtimeConfig: RuntimeConfig;
 
-  constructor(config?: Partial<TomasuloConfig>) {
+  constructor(config?: Partial<TomasuloConfig>, runtimeConfig?: RuntimeConfig) {
     this.config = { ...DEFAULT_TOMASULO_CONFIG, ...config };
+    this.runtimeConfig = runtimeConfig || DEFAULT_RUNTIME_CONFIG;
   }
 
   /**
@@ -368,10 +372,12 @@ export class TomasuloExecutionModel implements ExecutionModel {
         toStart.execStartCycle = cycle;
 
         // Set remaining cycles based on operation
-        if (toStart.rsType === RSType.LOAD || toStart.rsType === RSType.STORE) {
-          toStart.remainingCycles = 1; // Memory access after address calc
+        if (toStart.rsType === RSType.LOAD) {
+          toStart.remainingCycles = this.runtimeConfig.memoryDelays.read; // Memory read delay
+        } else if (toStart.rsType === RSType.STORE) {
+          toStart.remainingCycles = this.runtimeConfig.memoryDelays.write; // Memory write delay
         } else {
-          toStart.remainingCycles = getTomasuloLatency(toStart.op!, this.config);
+          toStart.remainingCycles = getRuntimeLatency(toStart.op!, this.runtimeConfig);
         }
 
         tomasulo.events.push({

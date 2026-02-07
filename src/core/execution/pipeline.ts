@@ -29,6 +29,9 @@ import {
   EX_LATENCY,
   instructionWritesRegister,
   WORD_SIZE,
+  RuntimeConfig,
+  DEFAULT_RUNTIME_CONFIG,
+  getRuntimeLatency,
 } from '../types';
 import {
   getCurrentInstruction,
@@ -102,11 +105,13 @@ export class PipelineExecutionModel implements ExecutionModel {
   private dataForwardingEnabled: boolean;
   private memoryReads: number;
   private memoryWrites: number;
+  private runtimeConfig: RuntimeConfig;
 
-  constructor(dataForwardingEnabled: boolean = true) {
+  constructor(dataForwardingEnabled: boolean = true, runtimeConfig?: RuntimeConfig) {
     this.dataForwardingEnabled = dataForwardingEnabled;
     this.memoryReads = 0;
     this.memoryWrites = 0;
+    this.runtimeConfig = runtimeConfig || DEFAULT_RUNTIME_CONFIG;
   }
 
   /**
@@ -255,10 +260,11 @@ export class PipelineExecutionModel implements ExecutionModel {
           };
           next.EXMEM = createEmptyEXMEM(); // Insert bubble
           
+          const totalLatency = getRuntimeLatency(exInstr.type, this.runtimeConfig);
           cycleEvents.push({
             cycle,
             type: EventType.EXECUTE_CONTINUE,
-            message: `EX: ${exInstr.type} cycle ${EX_LATENCY[exInstr.type] - current.IDEX.exCyclesRemaining + 1}/${EX_LATENCY[exInstr.type]}`,
+            message: `EX: ${exInstr.type} cycle ${totalLatency - current.IDEX.exCyclesRemaining + 1}/${totalLatency}`,
           });
         } else {
           // Completing EX stage
@@ -475,7 +481,7 @@ export class PipelineExecutionModel implements ExecutionModel {
             rd: idInstr.rd ?? null,
             imm: idInstr.imm ?? null,
             valid: true,
-            exCyclesRemaining: EX_LATENCY[idInstr.type],
+            exCyclesRemaining: getRuntimeLatency(idInstr.type, this.runtimeConfig),
           };
         }
         

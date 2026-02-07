@@ -11,6 +11,8 @@ import {
   DEFAULT_CONFIG,
   ExecutionTrace,
   TraceEntry,
+  RuntimeConfig,
+  DEFAULT_RUNTIME_CONFIG,
 } from './types';
 import { parseProgram } from './instruction';
 import { createMachineState } from './state';
@@ -276,20 +278,22 @@ export class Simulator {
    * Create execution model based on mode
    */
   private createExecutionModel(mode: ExecutionMode): ExecutionModel {
+    const runtimeConfig = this.config.runtimeConfig || DEFAULT_RUNTIME_CONFIG;
+    
     switch (mode) {
       case ExecutionMode.PIPELINE:
         const forwardingEnabled = this.config.pipelineConfig?.dataForwarding ?? true;
-        return new PipelineExecutionModel(forwardingEnabled);
+        return new PipelineExecutionModel(forwardingEnabled, runtimeConfig);
       
       case ExecutionMode.TOMASULO:
-        return new TomasuloExecutionModel(this.config.tomasuloConfig);
+        return new TomasuloExecutionModel(this.config.tomasuloConfig, runtimeConfig);
       
       case ExecutionMode.TOMASULO_SPECULATION:
-        return new SpeculationExecutionModel(this.config.speculationConfig);
+        return new SpeculationExecutionModel(this.config.speculationConfig, runtimeConfig);
       
       case ExecutionMode.TOMASULO_BRANCH_PRED:
         // Phase 4: Branch prediction will build on speculation
-        return new SpeculationExecutionModel(this.config.speculationConfig);
+        return new SpeculationExecutionModel(this.config.speculationConfig, runtimeConfig);
       
       default:
         throw new Error(`Unknown execution mode: ${mode}`);
