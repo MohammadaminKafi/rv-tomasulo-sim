@@ -26,7 +26,6 @@ import {
   PipelineEvent,
   EventType,
   StallReason,
-  EX_LATENCY,
   instructionWritesRegister,
   WORD_SIZE,
   RuntimeConfig,

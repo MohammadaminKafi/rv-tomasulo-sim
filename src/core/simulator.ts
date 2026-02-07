@@ -11,7 +11,6 @@ import {
   DEFAULT_CONFIG,
   ExecutionTrace,
   TraceEntry,
-  RuntimeConfig,
   DEFAULT_RUNTIME_CONFIG,
 } from './types';
 import { parseProgram } from './instruction';
