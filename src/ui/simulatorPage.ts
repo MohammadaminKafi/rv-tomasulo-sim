@@ -19,7 +19,6 @@ import {
 } from '../core/types';
 
 export class SimulatorPage {
-  private router: Router;
   private simulator: Simulator;
   private codeEditor: CodeEditor | null;
   private isRunning: boolean;
@@ -66,7 +65,6 @@ export class SimulatorPage {
   private nonSpecEventLogSection!: HTMLElement;
 
   constructor(router: Router) {
-    this.router = router;
     this.simulator = new Simulator();
     this.codeEditor = null;
     this.isRunning = false;

@@ -47,7 +47,7 @@ function parseMemoryOperand(operand: string): { offset: number; base: number } {
 /**
  * Parse a single line of assembly code
  */
-export function parseInstruction(line: string, address: number, labels: Map<string, number>, lineNumber?: number): Instruction | null {
+export function parseInstruction(line: string, address: number, _labels: Map<string, number>, lineNumber?: number): Instruction | null {
   // Remove comments and trim
   const commentIndex = line.indexOf('#');
   if (commentIndex !== -1) {
