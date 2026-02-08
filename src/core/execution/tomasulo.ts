@@ -64,6 +64,9 @@ export class TomasuloExecutionModel implements ExecutionModel {
     const tomasulo = newState.tomasulo!;
     const arch = newState.architectural;
 
+    // Clear the set of RS entries that woke up (from previous cycle)
+    tomasulo.wokenUpThisCycle = undefined;
+
     // Clear events from previous cycle
     // (Keep the full history but we'll mark cycle boundaries)
     
@@ -169,12 +172,15 @@ export class TomasuloExecutionModel implements ExecutionModel {
     });
 
     // Wake up all waiting operands
+    // Track which RS entries had an operand wake up this cycle
     for (const rs of tomasulo.reservationStations.values()) {
       if (!rs.busy) continue;
 
+      let wokeUp = false;
       if (rs.Qj === broadcast.tag) {
         rs.Vj = broadcast.value;
         rs.Qj = null;
+        wokeUp = true;
         tomasulo.events.push({
           cycle,
           type: TomasuloEventType.OPERAND_WAKEUP,
@@ -185,11 +191,18 @@ export class TomasuloExecutionModel implements ExecutionModel {
       if (rs.Qk === broadcast.tag) {
         rs.Vk = broadcast.value;
         rs.Qk = null;
+        wokeUp = true;
         tomasulo.events.push({
           cycle,
           type: TomasuloEventType.OPERAND_WAKEUP,
           message: `${rs.id}.Vk wakes up with value ${broadcast.value}`,
         });
+      }
+
+      // Mark RS entry as having woken up this cycle - it cannot start executing this cycle
+      if (wokeUp) {
+        tomasulo.wokenUpThisCycle = tomasulo.wokenUpThisCycle || new Set();
+        tomasulo.wokenUpThisCycle.add(rs.id);
       }
     }
 
@@ -326,6 +339,12 @@ export class TomasuloExecutionModel implements ExecutionModel {
 
     for (const rs of tomasulo.reservationStations.values()) {
       if (!rs.busy || rs.state !== RSState.READY) continue;
+
+      // Skip entries that just woke up this cycle - they cannot start executing
+      // until the next cycle (per spec: "However, they cannot START EXECUTING until the next cycle")
+      if (tomasulo.wokenUpThisCycle?.has(rs.id)) {
+        continue;
+      }
 
       // Check if this FU type already has something executing
       let fuBusy = false;

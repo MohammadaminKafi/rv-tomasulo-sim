@@ -70,6 +70,9 @@ export class SpeculationExecutionModel implements ExecutionModel {
     const spec = newState.speculation!;
     const arch = newState.architectural;
 
+    // Clear the set of RS entries that woke up (from previous cycle)
+    spec.wokenUpThisCycle = undefined;
+
     const currentCycle = arch.cycle;
 
     try {
@@ -430,12 +433,15 @@ export class SpeculationExecutionModel implements ExecutionModel {
     });
 
     // Wake up all waiting operands (Q-fields point to ROB indices)
+    // Track which RS entries had an operand wake up this cycle
     for (const rs of spec.reservationStations.values()) {
       if (!rs.busy) continue;
 
+      let wokeUp = false;
       if (rs.Qj === broadcast.robIndex) {
         rs.Vj = broadcast.value;
         rs.Qj = null;
+        wokeUp = true;
         spec.events.push({
           cycle,
           type: SpeculationEventType.RS_OPERAND_WAKEUP,
@@ -446,11 +452,18 @@ export class SpeculationExecutionModel implements ExecutionModel {
       if (rs.Qk === broadcast.robIndex) {
         rs.Vk = broadcast.value;
         rs.Qk = null;
+        wokeUp = true;
         spec.events.push({
           cycle,
           type: SpeculationEventType.RS_OPERAND_WAKEUP,
           message: `${rs.id}.Vk wakes up with value ${broadcast.value} from ROB${broadcast.robIndex}`,
         });
+      }
+
+      // Mark RS entry as having woken up this cycle - it cannot start executing this cycle
+      if (wokeUp) {
+        spec.wokenUpThisCycle = spec.wokenUpThisCycle || new Set();
+        spec.wokenUpThisCycle.add(rs.id);
       }
     }
 
@@ -519,6 +532,12 @@ export class SpeculationExecutionModel implements ExecutionModel {
 
     for (const rs of spec.reservationStations.values()) {
       if (!rs.busy || rs.state !== RSState.READY) continue;
+
+      // Skip entries that just woke up this cycle - they cannot start executing
+      // until the next cycle (per spec: "However, they cannot START EXECUTING until the next cycle")
+      if (spec.wokenUpThisCycle?.has(rs.id)) {
+        continue;
+      }
 
       // Check if ROB entry is squashed
       const robEntry = spec.rob[rs.robIndex];

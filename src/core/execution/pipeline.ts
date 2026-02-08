@@ -250,11 +250,74 @@ export class PipelineExecutionModel implements ExecutionModel {
       if (current.IDEX.valid && current.IDEX.instruction) {
         const exInstr = current.IDEX.instruction;
         
+        // Get operand values (potentially forwarded)
+        let rs1Value = current.IDEX.rs1Value;
+        let rs2Value = current.IDEX.rs2Value;
+        
+        // Apply forwarding at EX stage - must happen on EVERY cycle including
+        // the first cycle of multi-cycle instructions, so forwarded values
+        // are captured before the producing instruction exits the pipeline.
+        if (this.dataForwardingEnabled) {
+          // Forward from EX/MEM (higher priority)
+          if (current.EXMEM.valid && current.EXMEM.rd !== null && current.EXMEM.rd !== 0) {
+            if (current.EXMEM.instruction?.type !== InstructionType.LD) {
+              if (current.IDEX.rs1 === current.EXMEM.rd) {
+                rs1Value = current.EXMEM.aluResult;
+                cycleEvents.push({
+                  cycle,
+                  type: EventType.FORWARD,
+                  message: `Forward EX/MEM -> EX.rs1(x${current.IDEX.rs1}): ${rs1Value}`,
+                });
+                newState.pipeline!.forwardingEvents++;
+              }
+              if (current.IDEX.rs2 === current.EXMEM.rd) {
+                rs2Value = current.EXMEM.aluResult;
+                cycleEvents.push({
+                  cycle,
+                  type: EventType.FORWARD,
+                  message: `Forward EX/MEM -> EX.rs2(x${current.IDEX.rs2}): ${rs2Value}`,
+                });
+                newState.pipeline!.forwardingEvents++;
+              }
+            }
+          }
+          
+          // Forward from MEM/WB (lower priority - only if not forwarded from EX/MEM)
+          if (current.MEMWB.valid && current.MEMWB.rd !== null && current.MEMWB.rd !== 0) {
+            const exmemForwardsRs1 = current.EXMEM.valid && current.EXMEM.rd === current.IDEX.rs1 && 
+                                      current.EXMEM.instruction?.type !== InstructionType.LD;
+            const exmemForwardsRs2 = current.EXMEM.valid && current.EXMEM.rd === current.IDEX.rs2 && 
+                                      current.EXMEM.instruction?.type !== InstructionType.LD;
+            
+            if (current.IDEX.rs1 === current.MEMWB.rd && !exmemForwardsRs1) {
+              rs1Value = current.MEMWB.result;
+              cycleEvents.push({
+                cycle,
+                type: EventType.FORWARD,
+                message: `Forward MEM/WB -> EX.rs1(x${current.IDEX.rs1}): ${rs1Value}`,
+              });
+              newState.pipeline!.forwardingEvents++;
+            }
+            if (current.IDEX.rs2 === current.MEMWB.rd && !exmemForwardsRs2) {
+              rs2Value = current.MEMWB.result;
+              cycleEvents.push({
+                cycle,
+                type: EventType.FORWARD,
+                message: `Forward MEM/WB -> EX.rs2(x${current.IDEX.rs2}): ${rs2Value}`,
+              });
+              newState.pipeline!.forwardingEvents++;
+            }
+          }
+        }
+        
         // Check if still executing multi-cycle instruction
         if (current.IDEX.exCyclesRemaining > 1) {
           // Still executing - decrement counter, keep in EX
+          // Store the forwarded values so they're used when execution completes
           next.IDEX = {
             ...current.IDEX,
+            rs1Value,  // Use potentially forwarded values
+            rs2Value,  // Use potentially forwarded values
             exCyclesRemaining: current.IDEX.exCyclesRemaining - 1,
           };
           next.EXMEM = createEmptyEXMEM(); // Insert bubble
@@ -266,63 +329,7 @@ export class PipelineExecutionModel implements ExecutionModel {
             message: `EX: ${exInstr.type} cycle ${totalLatency - current.IDEX.exCyclesRemaining + 1}/${totalLatency}`,
           });
         } else {
-          // Completing EX stage
-          let rs1Value = current.IDEX.rs1Value;
-          let rs2Value = current.IDEX.rs2Value;
-          
-          // Apply forwarding at EX stage
-          if (this.dataForwardingEnabled) {
-            // Forward from EX/MEM (higher priority)
-            if (current.EXMEM.valid && current.EXMEM.rd !== null && current.EXMEM.rd !== 0) {
-              if (current.EXMEM.instruction?.type !== InstructionType.LD) {
-                if (current.IDEX.rs1 === current.EXMEM.rd) {
-                  rs1Value = current.EXMEM.aluResult;
-                  cycleEvents.push({
-                    cycle,
-                    type: EventType.FORWARD,
-                    message: `Forward EX/MEM -> EX.rs1(x${current.IDEX.rs1}): ${rs1Value}`,
-                  });
-                  newState.pipeline!.forwardingEvents++;
-                }
-                if (current.IDEX.rs2 === current.EXMEM.rd) {
-                  rs2Value = current.EXMEM.aluResult;
-                  cycleEvents.push({
-                    cycle,
-                    type: EventType.FORWARD,
-                    message: `Forward EX/MEM -> EX.rs2(x${current.IDEX.rs2}): ${rs2Value}`,
-                  });
-                  newState.pipeline!.forwardingEvents++;
-                }
-              }
-            }
-            
-            // Forward from MEM/WB (lower priority - only if not forwarded from EX/MEM)
-            if (current.MEMWB.valid && current.MEMWB.rd !== null && current.MEMWB.rd !== 0) {
-              const exmemForwardsRs1 = current.EXMEM.valid && current.EXMEM.rd === current.IDEX.rs1 && 
-                                        current.EXMEM.instruction?.type !== InstructionType.LD;
-              const exmemForwardsRs2 = current.EXMEM.valid && current.EXMEM.rd === current.IDEX.rs2 && 
-                                        current.EXMEM.instruction?.type !== InstructionType.LD;
-              
-              if (current.IDEX.rs1 === current.MEMWB.rd && !exmemForwardsRs1) {
-                rs1Value = current.MEMWB.result;
-                cycleEvents.push({
-                  cycle,
-                  type: EventType.FORWARD,
-                  message: `Forward MEM/WB -> EX.rs1(x${current.IDEX.rs1}): ${rs1Value}`,
-                });
-                newState.pipeline!.forwardingEvents++;
-              }
-              if (current.IDEX.rs2 === current.MEMWB.rd && !exmemForwardsRs2) {
-                rs2Value = current.MEMWB.result;
-                cycleEvents.push({
-                  cycle,
-                  type: EventType.FORWARD,
-                  message: `Forward MEM/WB -> EX.rs2(x${current.IDEX.rs2}): ${rs2Value}`,
-                });
-                newState.pipeline!.forwardingEvents++;
-              }
-            }
-          }
+          // Completing EX stage - use the (already forwarded) operand values
           
           // Execute ALU operation
           let aluResult = 0;

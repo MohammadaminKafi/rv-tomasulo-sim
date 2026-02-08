@@ -1532,7 +1532,7 @@ export class SimulatorPage {
           ${records.map((rec, idx) => `
             <tr class="${rec.squashed ? 'instruction-squashed' : ''}">
               <td>${idx}</td>
-              <td class="instruction-text">${rec.instruction}</td>
+              <td class="instruction-text">${rec.instruction.text}</td>
               <td>${rec.issueCycle ?? '-'}</td>
               <td>${rec.execStartCycle !== null && rec.execEndCycle !== null 
                 ? (rec.execStartCycle === rec.execEndCycle 

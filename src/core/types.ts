@@ -601,6 +601,9 @@ export interface TomasuloState {
   memoryReads: number;
   memoryWrites: number;
   
+  // Track RS entries that woke up this cycle (cannot start executing same cycle)
+  wokenUpThisCycle?: Set<string>;
+  
   // Event log
   events: TomasuloEvent[];
 }
@@ -1144,6 +1147,9 @@ export interface SpeculationState {
   mispredictCount: number;
   instructionsSquashed: number;
   instructionsCommitted: number;
+  
+  // Track RS entries that woke up this cycle (cannot start executing same cycle)
+  wokenUpThisCycle?: Set<string>;
   
   // Event log
   events: SpeculationEvent[];
